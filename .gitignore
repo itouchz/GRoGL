@@ -1,3 +1,8 @@
+# Datasets
+./datasets
+./keys.txt
+*.out
+
 # History files
 .Rhistory
 .Rapp.history
