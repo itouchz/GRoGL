@@ -1,0 +1,454 @@
+---
+title: "RQ3-2"
+author: "CS564 Team 10"
+output: html_notebook
+---
+
+Load Datasets
+```{r}
+suppressMessages(library(data.table))
+suppressMessages(library(readxl))
+suppressMessages(library(dplyr))
+suppressMessages(library(stringr))
+suppressMessages(library(ggplot2))
+suppressMessages(library(gclus))
+suppressMessages(library(NbClust))
+suppressMessages(library(fastDummies))
+suppressMessages(library(cluster))
+
+set.seed(7)
+theme_set(theme_bw())
+viz_path <- "visualizations/RQ3"
+
+# Metadata
+coin_features <- fread("datasets/coin_features.csv") %>% as.data.frame()
+ticker_info <- fread("datasets/ticker_info.csv") %>% as.data.frame()
+
+coin_features <- coin_features %>% select(-ecosystem) %>% filter(!symbol %in% c("BTC-USD", "ETH-USD", "ZEN-USD")) %>% mutate(mineability = if_else(mineability, 1, 0))
+coin_features <- dummy_cols(coin_features, select_columns = c("consensus", "hash"), remove_selected_columns = T)
+```
+
+
+```{r}
+
+# Error Index, cannot be calculated: ccc, scott, marriot, trcovw, tracew, friedman, rubin
+indices <-c("kl", "ch", "hartigan", "cindex", "db", "silhouette", "duda", "pseudot2", "beale", "ratkowsky", "ball", "ptbiserial", "gap", "frey", "mcclain", "gamma", "gplus", "tau", "dunn", "hubert", "sdindex", "dindex", "sdbw")
+
+cls.features <- select(coin_features, -1)
+
+nc_list <- c()
+for (idx in indices){
+  nc <- NbClust(cls.features, method="complete", index=idx)$Best.nc # find number of clusters
+  nc_list <- c(nc_list, nc[1])
+}
+
+stat_mode <- function(v) {
+ uniqv <- unique(v)
+ uniqv[which.max(tabulate(match(v, uniqv)))]
+}
+
+nc <- 3 # stat_mode(nc_list)
+```
+
+
+```{r}
+
+cls.kmeans <- kmeans(cls.features, centers = nc) # run k-mean clustering
+cls.hclust <- hclust(dist(cls.features, method = "euclidean"), method = "complete") # run hierarchical clustering
+
+```
+
+
+```{r}
+
+# visualize clusters
+clusplot(cls.features, cls.kmeans$cluster, color = T, shade = T, labels = nc)
+
+plot(cls.hclust, labels = coin_features$symbol, cex = 0.8)
+rect.hclust(cls.hclust, 6)
+
+cls.hclust.cn <- cutree(cls.hclust, k = 6)
+
+# pamd <- pam(dist(cls.features, method = "euclidean"), 6)
+# 
+# sobj <- silhouette(pamd)
+# plot(sobj, col=2:7)
+
+```
+
+
+```{r}
+library(tidyr)
+
+# interpret each cluster
+fcluster <- as.data.frame(cls.hclust.cn) 
+colnames(fcluster) <- c("cluster")
+
+coin_features.cluster <- bind_cols(list(coin_features, fcluster)) %>% mutate(cluster = as.factor(cluster))
+cls.hclust.stats <- bind_cols(list(cls.features, fcluster)) %>% group_by(cluster) %>% summarise_all(list(mean)) %>% gather("traits", "meanval", 2:46) %>% mutate(cluster = as.factor(cluster))
+
+cls.hclust.stats %>% ggplot(aes(x = traits, y = meanval, fill = cluster)) +
+  geom_bar(stat="identity", position = "dodge") +
+  ggtitle("Average Features by Clusters") +
+  xlab("") + 
+  ylab("Average Values") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+```
+
+```{r}
+# filter by each cluster
+C1 <- coin_features.cluster %>% filter(cluster == "1")
+C2 <- coin_features.cluster %>% filter(cluster == "2")
+C3 <- coin_features.cluster %>% filter(cluster == "3")
+C4 <- coin_features.cluster %>% filter(cluster == "4")
+C5 <- coin_features.cluster %>% filter(cluster == "5")
+C6 <- coin_features.cluster %>% filter(cluster == "6")
+```
+
+
+Pre-COVID19
+```{r}
+# visualize coins' prices within cluster
+price_cols <- c("Date", "Close", "Volume", "change", "returns", "volatility")
+cluster.groups <- c("C1", "C2", "C3", "C4", "C5", "C6")
+
+for (cluster.group in cluster.groups) {
+  ndays <- 365
+  coins.prices <- data.frame(matrix(nrow = ndays, ncol = 0))
+  coins.changes <- data.frame(matrix(nrow = ndays, ncol = 0))
+  coins.returns <- data.frame(matrix(nrow = ndays, ncol = 0))
+  coins.volatility <- data.frame(matrix(nrow = ndays, ncol = 0))
+  for (symbol in get(cluster.group)$symbol) {
+    values <- fread(paste("datasets/daily/coins", paste(symbol, 'csv', sep = "."), sep = "/")) %>% as.data.frame() %>% filter(Date >= "2019-01-01" & Date <= "2019-12-31") %>% select(all_of(price_cols)) %>% arrange(Date)
+    symbol <- str_split(symbol, "-", simplify = T)[1]
+    
+    coins.prices['Date'] <- values$Date
+    coins.changes['Date'] <- values$Date
+    coins.returns['Date'] <- values$Date
+    coins.volatility['Date'] <- values$Date
+    
+    coins.prices[symbol] <- values$Close 
+    coins.changes[symbol] <- values$change
+    coins.returns[symbol] <- values$returns
+    coins.volatility[symbol] <- values$volatility
+  }
+  
+  coins.prices.melt <- reshape2::melt(coins.prices, "Date", value.name = "Prices", variable.name = "Coins")
+  coins.prices.plot <- ggplot(data = coins.prices.melt, aes(x = Date, y = Prices, color = Coins)) +
+    ggtitle(paste("Price Movement of", cluster.group)) +
+    geom_line()
+  coins.prices.boxplot <- ggplot(data = coins.prices.melt, aes(x = Coins, y = Prices, fill = Coins)) +
+    geom_boxplot(notch = T) +
+    ggtitle(paste("Price Boxplot of", cluster.group)) +
+    theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+  print(coins.prices.plot)
+  print(coins.prices.boxplot)
+    
+  coins.changes.melt <- reshape2::melt(coins.changes, "Date", value.name = "Changes", variable.name = "Coins")
+  coins.changes.plot <- ggplot(data = coins.changes.melt, aes(x = Date, y = Changes, color = Coins)) +
+    ggtitle(paste("Change Movement of", cluster.group)) +
+    geom_line()
+  coins.changes.boxplot <- ggplot(data = coins.changes.melt, aes(x = Coins, y = Changes, fill = Coins)) +
+    geom_boxplot(notch = T) +
+    ggtitle(paste("Change Boxplot of", cluster.group)) +
+    theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+  print(coins.changes.plot)
+  print(coins.changes.boxplot)
+
+  coins.returns.melt <- reshape2::melt(coins.returns, "Date", value.name = "Returns", variable.name = "Coins")
+  coins.returns.plot <- ggplot(data = coins.returns.melt, aes(x = Date, y = Returns, color = Coins)) +
+    ggtitle(paste("Returns Movement of", cluster.group)) +
+    geom_line()
+  coins.returns.boxplot <- ggplot(data = coins.returns.melt, aes(x = Coins, y = Returns, fill = Coins)) +
+    geom_boxplot(notch = T) +
+    ggtitle(paste("Returns Boxplot of", cluster.group)) +
+    theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+  print(coins.returns.plot)
+  print(coins.returns.boxplot)
+
+  coins.volatility.melt <- reshape2::melt(coins.volatility, "Date", value.name = "Volatility", variable.name = "Coins")
+  coins.volatility.plot <- ggplot(data = coins.volatility.melt, aes(x = Date, y = Volatility, color = Coins)) +
+    ggtitle(paste("Volatility Movement of", cluster.group)) +
+    geom_line()
+  coins.volatility.boxplot <- ggplot(data = coins.volatility.melt, aes(x = Coins, y = Volatility, fill = Coins)) +
+    geom_boxplot(notch = T) +
+    ggtitle(paste("Volatility Boxplot of", cluster.group)) +
+    theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+  print(coins.volatility.plot) 
+  print(coins.volatility.boxplot) 
+
+  # average prices for inter-cluster comparison
+  coins.prices.avg <- coins.prices.melt %>% group_by(Date) %>% summarise(avg_prices = mean(Prices, na.rm = T)) %>% mutate(cluster = cluster.group)
+  coins.changes.avg <- coins.changes.melt %>% group_by(Date) %>% summarise(avg_changes = mean(Changes, na.rm = T)) %>% mutate(cluster = cluster.group)
+  coins.returns.avg <- coins.returns.melt %>% group_by(Date) %>% summarise(avg_returns = mean(Returns, na.rm = T)) %>% mutate(cluster = cluster.group)
+  coins.volatility.avg <- coins.volatility.melt %>% group_by(Date) %>% summarise(avg_volatility = mean(Volatility, na.rm = T)) %>% mutate(cluster = cluster.group)
+  
+  assign(paste(cluster.group, "prices.avg", sep = "."), coins.prices.avg)
+  assign(paste(cluster.group, "changes.avg", sep = "."), coins.changes.avg)
+  assign(paste(cluster.group, "returns.avg", sep = "."), coins.returns.avg)
+  assign(paste(cluster.group, "volatility.avg", sep = "."), coins.volatility.avg)
+}
+
+# inter-cluster prices
+for (movement in c("Prices", "Changes", "Returns", "Volatility")) {
+  movement.lower <- tolower(movement)
+  y_val <- paste("avg", movement.lower, sep = "_")
+  cluster.plot <- ggplot(data = get(paste("coins", movement.lower, "avg", sep = ".")), aes(x = Date)) +
+    geom_line(aes(y = get(y_val), color = "C1"), data = get(paste("C1", movement.lower, "avg", sep = "."))) +
+    geom_line(aes(y = get(y_val), color = "C2"), data = get(paste("C2", movement.lower, "avg", sep = "."))) +
+    geom_line(aes(y = get(y_val), color = "C3"), data = get(paste("C3", movement.lower, "avg", sep = "."))) +
+    geom_line(aes(y = get(y_val), color = "C4"), data = get(paste("C4", movement.lower, "avg", sep = "."))) +
+    geom_line(aes(y = get(y_val), color = "C5"), data = get(paste("C5", movement.lower, "avg", sep = "."))) +
+    geom_line(aes(y = get(y_val), color = "C6"), data = get(paste("C6", movement.lower, "avg", sep = "."))) +
+    ylab(paste("Average", movement)) +
+    labs(color = "Cluster") +
+    ggtitle(paste(movement, "Movement between Clusters"))
+  cluster.boxplot <- ggplot() +
+    geom_boxplot(aes(y = get(y_val), x = cluster, fill = "C1"), data = get(paste("C1", movement.lower, "avg", sep = ".")), notch = T) +
+    geom_boxplot(aes(y = get(y_val), x = cluster, fill = "C2"), data = get(paste("C2", movement.lower, "avg", sep = ".")), notch = T) +
+    geom_boxplot(aes(y = get(y_val), x = cluster, fill = "C3"), data = get(paste("C3", movement.lower, "avg", sep = ".")), notch = T) +
+    geom_boxplot(aes(y = get(y_val), x = cluster, fill = "C4"), data = get(paste("C4", movement.lower, "avg", sep = ".")), notch = T) +
+    geom_boxplot(aes(y = get(y_val), x = cluster, fill = "C5"), data = get(paste("C5", movement.lower, "avg", sep = ".")), notch = T) +
+    geom_boxplot(aes(y = get(y_val), x = cluster, fill = "C6"), data = get(paste("C6", movement.lower, "avg", sep = ".")), notch = T) +
+    ylab(movement) +
+    labs(fill = "Cluster") +
+    ggtitle(paste(movement, "Boxplot between Clusters"))
+    
+  print(cluster.plot)
+  print(cluster.boxplot)
+}
+
+
+```
+
+Peri-COVID19
+```{r}
+
+# visualize coins' prices within cluster
+price_cols <- c("Date", "Close", "Volume", "change", "returns", "volatility")
+cluster.groups <- c("C1", "C2", "C3", "C4", "C5", "C6")
+
+for (cluster.group in cluster.groups) {
+  ndays <- 362
+  coins.prices <- data.frame(matrix(nrow = ndays, ncol = 0))
+  coins.changes <- data.frame(matrix(nrow = ndays, ncol = 0))
+  coins.returns <- data.frame(matrix(nrow = ndays, ncol = 0))
+  coins.volatility <- data.frame(matrix(nrow = ndays, ncol = 0))
+  for (symbol in get(cluster.group)$symbol) {
+    values <- fread(paste("datasets/daily/coins", paste(symbol, 'csv', sep = "."), sep = "/")) %>% as.data.frame() %>% filter(Date >= "2020-01-01" & Date <= "2020-12-31") %>% select(all_of(price_cols)) %>% arrange(Date)
+    symbol <- str_split(symbol, "-", simplify = T)[1]
+    
+    coins.prices['Date'] <- values$Date
+    coins.changes['Date'] <- values$Date
+    coins.returns['Date'] <- values$Date
+    coins.volatility['Date'] <- values$Date
+    
+    coins.prices[symbol] <- values$Close 
+    coins.changes[symbol] <- values$change
+    coins.returns[symbol] <- values$returns
+    coins.volatility[symbol] <- values$volatility
+  }
+  
+  coins.prices.melt <- reshape2::melt(coins.prices, "Date", value.name = "Prices", variable.name = "Coins")
+  coins.prices.plot <- ggplot(data = coins.prices.melt, aes(x = Date, y = Prices, color = Coins)) +
+    ggtitle(paste("Price Movement of", cluster.group)) +
+    geom_line()
+  coins.prices.boxplot <- ggplot(data = coins.prices.melt, aes(x = Coins, y = Prices, fill = Coins)) +
+    geom_boxplot(notch = T) +
+    ggtitle(paste("Price Boxplot of", cluster.group)) +
+    theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+  print(coins.prices.plot)
+  print(coins.prices.boxplot)
+    
+  coins.changes.melt <- reshape2::melt(coins.changes, "Date", value.name = "Changes", variable.name = "Coins")
+  coins.changes.plot <- ggplot(data = coins.changes.melt, aes(x = Date, y = Changes, color = Coins)) +
+    ggtitle(paste("Change Movement of", cluster.group)) +
+    geom_line()
+  coins.changes.boxplot <- ggplot(data = coins.changes.melt, aes(x = Coins, y = Changes, fill = Coins)) +
+    geom_boxplot(notch = T) +
+    ggtitle(paste("Change Boxplot of", cluster.group)) +
+    theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+  print(coins.changes.plot)
+  print(coins.changes.boxplot)
+
+  coins.returns.melt <- reshape2::melt(coins.returns, "Date", value.name = "Returns", variable.name = "Coins")
+  coins.returns.plot <- ggplot(data = coins.returns.melt, aes(x = Date, y = Returns, color = Coins)) +
+    ggtitle(paste("Returns Movement of", cluster.group)) +
+    geom_line()
+  coins.returns.boxplot <- ggplot(data = coins.returns.melt, aes(x = Coins, y = Returns, fill = Coins)) +
+    geom_boxplot(notch = T) +
+    ggtitle(paste("Returns Boxplot of", cluster.group)) +
+    theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+  print(coins.returns.plot)
+  print(coins.returns.boxplot)
+
+  coins.volatility.melt <- reshape2::melt(coins.volatility, "Date", value.name = "Volatility", variable.name = "Coins")
+  coins.volatility.plot <- ggplot(data = coins.volatility.melt, aes(x = Date, y = Volatility, color = Coins)) +
+    ggtitle(paste("Volatility Movement of", cluster.group)) +
+    geom_line()
+  coins.volatility.boxplot <- ggplot(data = coins.volatility.melt, aes(x = Coins, y = Volatility, fill = Coins)) +
+    geom_boxplot(notch = T) +
+    ggtitle(paste("Volatility Boxplot of", cluster.group)) +
+    theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+  print(coins.volatility.plot) 
+  print(coins.volatility.boxplot) 
+
+  # average prices for inter-cluster comparison
+  coins.prices.avg <- coins.prices.melt %>% group_by(Date) %>% summarise(avg_prices = mean(Prices, na.rm = T)) %>% mutate(cluster = cluster.group)
+  coins.changes.avg <- coins.changes.melt %>% group_by(Date) %>% summarise(avg_changes = mean(Changes, na.rm = T)) %>% mutate(cluster = cluster.group)
+  coins.returns.avg <- coins.returns.melt %>% group_by(Date) %>% summarise(avg_returns = mean(Returns, na.rm = T)) %>% mutate(cluster = cluster.group)
+  coins.volatility.avg <- coins.volatility.melt %>% group_by(Date) %>% summarise(avg_volatility = mean(Volatility, na.rm = T)) %>% mutate(cluster = cluster.group)
+  
+  assign(paste(cluster.group, "prices.avg", sep = "."), coins.prices.avg)
+  assign(paste(cluster.group, "changes.avg", sep = "."), coins.changes.avg)
+  assign(paste(cluster.group, "returns.avg", sep = "."), coins.returns.avg)
+  assign(paste(cluster.group, "volatility.avg", sep = "."), coins.volatility.avg)
+}
+
+# inter-cluster prices
+for (movement in c("Prices", "Changes", "Returns", "Volatility")) {
+  movement.lower <- tolower(movement)
+  y_val <- paste("avg", movement.lower, sep = "_")
+  cluster.plot <- ggplot(data = get(paste("coins", movement.lower, "avg", sep = ".")), aes(x = Date)) +
+    geom_line(aes(y = get(y_val), color = "C1"), data = get(paste("C1", movement.lower, "avg", sep = "."))) +
+    geom_line(aes(y = get(y_val), color = "C2"), data = get(paste("C2", movement.lower, "avg", sep = "."))) +
+    geom_line(aes(y = get(y_val), color = "C3"), data = get(paste("C3", movement.lower, "avg", sep = "."))) +
+    geom_line(aes(y = get(y_val), color = "C4"), data = get(paste("C4", movement.lower, "avg", sep = "."))) +
+    geom_line(aes(y = get(y_val), color = "C5"), data = get(paste("C5", movement.lower, "avg", sep = "."))) +
+    geom_line(aes(y = get(y_val), color = "C6"), data = get(paste("C6", movement.lower, "avg", sep = "."))) +
+    ylab(paste("Average", movement)) +
+    labs(color = "Cluster") +
+    ggtitle(paste(movement, "Movement between Clusters"))
+  cluster.boxplot <- ggplot() +
+    geom_boxplot(aes(y = get(y_val), x = cluster, fill = "C1"), data = get(paste("C1", movement.lower, "avg", sep = ".")), notch = T) +
+    geom_boxplot(aes(y = get(y_val), x = cluster, fill = "C2"), data = get(paste("C2", movement.lower, "avg", sep = ".")), notch = T) +
+    geom_boxplot(aes(y = get(y_val), x = cluster, fill = "C3"), data = get(paste("C3", movement.lower, "avg", sep = ".")), notch = T) +
+    geom_boxplot(aes(y = get(y_val), x = cluster, fill = "C4"), data = get(paste("C4", movement.lower, "avg", sep = ".")), notch = T) +
+    geom_boxplot(aes(y = get(y_val), x = cluster, fill = "C5"), data = get(paste("C5", movement.lower, "avg", sep = ".")), notch = T) +
+    geom_boxplot(aes(y = get(y_val), x = cluster, fill = "C6"), data = get(paste("C6", movement.lower, "avg", sep = ".")), notch = T) +
+    ylab(movement) +
+    labs(fill = "Cluster") +
+    ggtitle(paste(movement, "Boxplot between Clusters"))
+    
+  print(cluster.plot)
+  print(cluster.boxplot)
+}
+
+```
+
+Post-COVID19
+```{r}
+
+
+# visualize coins' prices within cluster
+price_cols <- c("Date", "Close", "Volume", "change", "returns", "volatility")
+cluster.groups <- c("C1", "C2", "C3", "C4", "C5", "C6")
+
+for (cluster.group in cluster.groups) {
+  ndays <- 304
+  coins.prices <- data.frame(matrix(nrow = ndays, ncol = 0))
+  coins.changes <- data.frame(matrix(nrow = ndays, ncol = 0))
+  coins.returns <- data.frame(matrix(nrow = ndays, ncol = 0))
+  coins.volatility <- data.frame(matrix(nrow = ndays, ncol = 0))
+  for (symbol in get(cluster.group)$symbol) {
+    values <- fread(paste("datasets/daily/coins", paste(symbol, 'csv', sep = "."), sep = "/")) %>% as.data.frame() %>% filter(Date >= "2021-01-01") %>% select(all_of(price_cols)) %>% arrange(Date)
+    symbol <- str_split(symbol, "-", simplify = T)[1]
+    
+    coins.prices['Date'] <- values$Date
+    coins.changes['Date'] <- values$Date
+    coins.returns['Date'] <- values$Date
+    coins.volatility['Date'] <- values$Date
+    
+    coins.prices[symbol] <- values$Close 
+    coins.changes[symbol] <- values$change
+    coins.returns[symbol] <- values$returns
+    coins.volatility[symbol] <- values$volatility
+  }
+  
+  coins.prices.melt <- reshape2::melt(coins.prices, "Date", value.name = "Prices", variable.name = "Coins")
+  coins.prices.plot <- ggplot(data = coins.prices.melt, aes(x = Date, y = Prices, color = Coins)) +
+    ggtitle(paste("Price Movement of", cluster.group)) +
+    geom_line()
+  coins.prices.boxplot <- ggplot(data = coins.prices.melt, aes(x = Coins, y = Prices, fill = Coins)) +
+    geom_boxplot(notch = T) +
+    ggtitle(paste("Price Boxplot of", cluster.group)) +
+    theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+  print(coins.prices.plot)
+  print(coins.prices.boxplot)
+    
+  coins.changes.melt <- reshape2::melt(coins.changes, "Date", value.name = "Changes", variable.name = "Coins")
+  coins.changes.plot <- ggplot(data = coins.changes.melt, aes(x = Date, y = Changes, color = Coins)) +
+    ggtitle(paste("Change Movement of", cluster.group)) +
+    geom_line()
+  coins.changes.boxplot <- ggplot(data = coins.changes.melt, aes(x = Coins, y = Changes, fill = Coins)) +
+    geom_boxplot(notch = T) +
+    ggtitle(paste("Change Boxplot of", cluster.group)) +
+    theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+  print(coins.changes.plot)
+  print(coins.changes.boxplot)
+
+  coins.returns.melt <- reshape2::melt(coins.returns, "Date", value.name = "Returns", variable.name = "Coins")
+  coins.returns.plot <- ggplot(data = coins.returns.melt, aes(x = Date, y = Returns, color = Coins)) +
+    ggtitle(paste("Returns Movement of", cluster.group)) +
+    geom_line()
+  coins.returns.boxplot <- ggplot(data = coins.returns.melt, aes(x = Coins, y = Returns, fill = Coins)) +
+    geom_boxplot(notch = T) +
+    ggtitle(paste("Returns Boxplot of", cluster.group)) +
+    theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+  print(coins.returns.plot)
+  print(coins.returns.boxplot)
+
+  coins.volatility.melt <- reshape2::melt(coins.volatility, "Date", value.name = "Volatility", variable.name = "Coins")
+  coins.volatility.plot <- ggplot(data = coins.volatility.melt, aes(x = Date, y = Volatility, color = Coins)) +
+    ggtitle(paste("Volatility Movement of", cluster.group)) +
+    geom_line()
+  coins.volatility.boxplot <- ggplot(data = coins.volatility.melt, aes(x = Coins, y = Volatility, fill = Coins)) +
+    geom_boxplot(notch = T) +
+    ggtitle(paste("Volatility Boxplot of", cluster.group)) +
+    theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+  print(coins.volatility.plot) 
+  print(coins.volatility.boxplot) 
+
+  # average prices for inter-cluster comparison
+  coins.prices.avg <- coins.prices.melt %>% group_by(Date) %>% summarise(avg_prices = mean(Prices, na.rm = T)) %>% mutate(cluster = cluster.group)
+  coins.changes.avg <- coins.changes.melt %>% group_by(Date) %>% summarise(avg_changes = mean(Changes, na.rm = T)) %>% mutate(cluster = cluster.group)
+  coins.returns.avg <- coins.returns.melt %>% group_by(Date) %>% summarise(avg_returns = mean(Returns, na.rm = T)) %>% mutate(cluster = cluster.group)
+  coins.volatility.avg <- coins.volatility.melt %>% group_by(Date) %>% summarise(avg_volatility = mean(Volatility, na.rm = T)) %>% mutate(cluster = cluster.group)
+  
+  assign(paste(cluster.group, "prices.avg", sep = "."), coins.prices.avg)
+  assign(paste(cluster.group, "changes.avg", sep = "."), coins.changes.avg)
+  assign(paste(cluster.group, "returns.avg", sep = "."), coins.returns.avg)
+  assign(paste(cluster.group, "volatility.avg", sep = "."), coins.volatility.avg)
+}
+
+# inter-cluster prices
+for (movement in c("Prices", "Changes", "Returns", "Volatility")) {
+  movement.lower <- tolower(movement)
+  y_val <- paste("avg", movement.lower, sep = "_")
+  cluster.plot <- ggplot(data = get(paste("coins", movement.lower, "avg", sep = ".")), aes(x = Date)) +
+    geom_line(aes(y = get(y_val), color = "C1"), data = get(paste("C1", movement.lower, "avg", sep = "."))) +
+    geom_line(aes(y = get(y_val), color = "C2"), data = get(paste("C2", movement.lower, "avg", sep = "."))) +
+    geom_line(aes(y = get(y_val), color = "C3"), data = get(paste("C3", movement.lower, "avg", sep = "."))) +
+    geom_line(aes(y = get(y_val), color = "C4"), data = get(paste("C4", movement.lower, "avg", sep = "."))) +
+    geom_line(aes(y = get(y_val), color = "C5"), data = get(paste("C5", movement.lower, "avg", sep = "."))) +
+    geom_line(aes(y = get(y_val), color = "C6"), data = get(paste("C6", movement.lower, "avg", sep = "."))) +
+    ylab(paste("Average", movement)) +
+    labs(color = "Cluster") +
+    ggtitle(paste(movement, "Movement between Clusters"))
+  cluster.boxplot <- ggplot() +
+    geom_boxplot(aes(y = get(y_val), x = cluster, fill = "C1"), data = get(paste("C1", movement.lower, "avg", sep = ".")), notch = T) +
+    geom_boxplot(aes(y = get(y_val), x = cluster, fill = "C2"), data = get(paste("C2", movement.lower, "avg", sep = ".")), notch = T) +
+    geom_boxplot(aes(y = get(y_val), x = cluster, fill = "C3"), data = get(paste("C3", movement.lower, "avg", sep = ".")), notch = T) +
+    geom_boxplot(aes(y = get(y_val), x = cluster, fill = "C4"), data = get(paste("C4", movement.lower, "avg", sep = ".")), notch = T) +
+    geom_boxplot(aes(y = get(y_val), x = cluster, fill = "C5"), data = get(paste("C5", movement.lower, "avg", sep = ".")), notch = T) +
+    geom_boxplot(aes(y = get(y_val), x = cluster, fill = "C6"), data = get(paste("C6", movement.lower, "avg", sep = ".")), notch = T) +
+    ylab(movement) +
+    labs(fill = "Cluster") +
+    ggtitle(paste(movement, "Boxplot between Clusters"))
+    
+  print(cluster.plot)
+  print(cluster.boxplot)
+}
+
+```
+

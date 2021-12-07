@@ -1,0 +1,82 @@
+---
+title: "RQ4 - ANOVA Pre-, Peri-, Post-COVID19 Mean Differences"
+output: html_notebook
+---
+
+Load Datasets
+```{r}
+suppressMessages(library(data.table))
+suppressMessages(library(readxl))
+suppressMessages(library(dplyr))
+suppressMessages(library(stringr))
+suppressMessages(library(PerformanceAnalytics))
+suppressMessages(library(ggcorrplot))
+suppressMessages(library(ggplot2))
+suppressMessages(library(tidyr))
+suppressMessages(library(igraph))
+suppressMessages(library(ggraph))
+suppressMessages(library(rstatix))
+
+set.seed(7)
+theme_set(theme_bw())
+theme_settings <- theme(
+  axis.text.x = element_text(size = 20),
+  axis.text.y = element_text(size = 20),
+)
+center_title <- theme(
+  plot.title = element_text(hjust = 0.5)
+)
+
+# Metadata
+coin_features <- fread("datasets/coin_features.csv") %>% as.data.frame()
+ticker_info <- fread("datasets/ticker_info.csv") %>% as.data.frame()
+```
+
+
+```{r}
+ndays <- 365 + 362 + 304
+coins.prices <- data.frame(matrix(nrow = ndays, ncol = 0))
+coins.changes <- data.frame(matrix(nrow = ndays, ncol = 0))
+coins.returns <- data.frame(matrix(nrow = ndays, ncol = 0))
+
+price_cols <- c("Date", "Close", "Volume", "change", "returns", "volatility")
+for (fname in list.files(paste("datasets/daily/coins", sep = "/"))) {
+  symbol <- str_split(fname, "-", simplify = T)[1]
+  values <- fread(paste("datasets/daily/coins", fname, sep = "/")) %>% as.data.frame() %>% filter(Date >= "2019-01-01") %>% select(all_of(price_cols)) %>% arrange(Date)  %>% fill(everything(), .direction = "downup") %>% mutate(Year = str_split(Date, "-", simplify = T)[, 1]) %>% mutate(Year = case_when(Year == "2019" ~ "Pre-COVID19", Year == "2020" ~ "Peri-COVID19", Year == "2021" ~ "Post-COVID19"))
+
+  if (!any(is.na(values$Close))) {
+    coins.prices$Year <- values$Year
+    coins.changes$Year <- values$Year
+    coins.returns$Year <- values$Year
+    
+    coins.prices[symbol] <- values$Close 
+    coins.changes[symbol] <- values$change
+    coins.returns[symbol] <- values$returns
+  }
+}
+```
+
+
+```{r}
+coins.prices <- coins.prices %>% mutate(avg_prices = rowMeans(across(where(is.numeric))))
+coins.changes <- coins.changes %>% mutate(avg_changes = rowMeans(across(where(is.numeric))))
+coins.returns <- coins.returns %>% mutate(avg_returns = rowMeans(across(where(is.numeric))))
+
+anova(lm(avg_prices ~ Year, data = coins.prices))
+anova(lm(avg_changes ~ Year, data = coins.changes))
+anova(lm(avg_returns ~ Year, data = coins.returns))
+```
+
+
+```{r}
+ggplot(data = coins.prices, aes(x = reorder(Year, avg_prices), y = avg_prices, fill = Year)) +
+    geom_boxplot() + ylab("Prices") + xlab("Period") +
+    ggtitle("Average Prices across Years") +
+    theme(legend.position = "none") + center_title
+
+ggplot(data = coins.returns, aes(x = reorder(Year, avg_returns), y = avg_returns, fill = Year)) +
+    geom_boxplot() + ylab("Returns (%)") + xlab("Period") +
+    ggtitle("Average Returns across Years") +
+    theme(legend.position = "none") + center_title
+```
+

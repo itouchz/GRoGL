@@ -1,0 +1,173 @@
+---
+title: "RQ2"
+author: "CS564 Team 10"
+output: html_notebook
+---
+
+```{r}
+suppressMessages(library(data.table))
+suppressMessages(library(readxl))
+suppressMessages(library(dplyr))
+suppressMessages(library(stringr))
+suppressMessages(library(PerformanceAnalytics))
+suppressMessages(library(ggcorrplot))
+suppressMessages(library(ggplot2))
+
+set.seed(7)
+
+# Metadata
+coin_features <- fread("datasets/coin_features.csv") %>% as.data.frame()
+ticker_info <- fread("datasets/ticker_info.csv") %>% as.data.frame()
+```
+
+
+Pre-COVID19
+```{r}
+
+nmonths <- 12
+coins.prices <- data.frame(matrix(nrow = nmonths, ncol = 0))
+coins.changes <- data.frame(matrix(nrow = nmonths, ncol = 0))
+coins.volumes <- data.frame(matrix(nrow = nmonths, ncol = 0))
+coins.returns <- data.frame(matrix(nrow = nmonths, ncol = 0))
+coins.volatility <- data.frame(matrix(nrow = nmonths, ncol = 0))
+
+price_cols <- c("Date", "Close", "Volume", "change", "returns", "volatility")
+for (fname in list.files(paste("datasets/monthly/coins", sep = "/"))) {
+  symbol <- str_split(fname, "-", simplify = T)[1]
+  values <- fread(paste("datasets/monthly/coins", fname, sep = "/")) %>% as.data.frame() %>% filter(Date >= "2019-01-01" & Date <= "2019-12-31") %>% select(all_of(price_cols)) %>% arrange(Date)
+
+  if (!any(is.na(values$Close))) {
+   coins.prices[symbol] <- values$Close 
+   coins.changes[symbol] <- values$change
+   coins.returns[symbol] <- values$returns
+   coins.volatility[symbol] <- values$volatility
+  }
+}
+
+# Coin Prices
+coins.prices.corr <- round(cor(coins.prices), 2)
+coins.prices.corr.p <- round(cor_pmat(coins.prices), 2)
+ggcorrplot(coins.prices.corr, ggtheme = ggplot2::theme_bw(), p.mat = coins.prices.corr.p, title = "Coin Prices") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+# Coin Volatility
+coins.volatility.corr <- round(cor(coins.volatility), 2)
+coins.volatility.corr.p <- round(cor_pmat(coins.volatility), 2)
+ggcorrplot(coins.volatility.corr, ggtheme = ggplot2::theme_bw(), p.mat = coins.volatility.corr.p, title = "Coin Volatility") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+# Coin Changes
+coins.changes.corr <- round(cor(coins.changes), 2)
+coins.changes.corr.p <- round(cor_pmat(coins.changes), 2)
+ggcorrplot(coins.changes.corr, ggtheme = ggplot2::theme_bw(), p.mat = coins.changes.corr.p, title = "Coin Changes") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+# Coin Returns
+coins.returns.corr <- round(cor(coins.returns), 2)
+coins.returns.corr.p <- round(cor_pmat(coins.returns), 2)
+ggcorrplot(coins.returns.corr, ggtheme = ggplot2::theme_bw(), p.mat = coins.returns.corr.p, title = "Coin Returns") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+```
+
+
+Peri-COVID19
+```{r}
+
+nmonths <- 12
+coins.prices <- data.frame(matrix(nrow = nmonths, ncol = 0))
+coins.changes <- data.frame(matrix(nrow = nmonths, ncol = 0))
+coins.volumes <- data.frame(matrix(nrow = nmonths, ncol = 0))
+coins.returns <- data.frame(matrix(nrow = nmonths, ncol = 0))
+coins.volatility <- data.frame(matrix(nrow = nmonths, ncol = 0))
+
+price_cols <- c("Date", "Close", "Volume", "change", "returns", "volatility")
+for (fname in list.files(paste("datasets/monthly/coins", sep = "/"))) {
+  symbol <- str_split(fname, "-", simplify = T)[1]
+  values <- fread(paste("datasets/monthly/coins", fname, sep = "/")) %>% as.data.frame() %>% filter(Date >= "2020-01-01" & Date <= "2020-12-31") %>% select(all_of(price_cols)) %>% arrange(Date)
+
+  if (!any(is.na(values$Close))) {
+   coins.prices[symbol] <- values$Close 
+   coins.changes[symbol] <- values$change
+   coins.returns[symbol] <- values$returns
+   coins.volatility[symbol] <- values$volatility
+  }
+}
+
+# Coin Prices
+coins.prices.corr <- round(cor(coins.prices), 2)
+coins.prices.corr.p <- round(cor_pmat(coins.prices), 2)
+ggcorrplot(coins.prices.corr, ggtheme = ggplot2::theme_bw(), p.mat = coins.prices.corr.p, title = "Coin Prices") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+# Coin Volatility
+coins.volatility.corr <- round(cor(coins.volatility), 2)
+coins.volatility.corr.p <- round(cor_pmat(coins.volatility), 2)
+ggcorrplot(coins.volatility.corr, ggtheme = ggplot2::theme_bw(), p.mat = coins.volatility.corr.p, title = "Coin Volatility") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+# Coin Changes
+coins.changes.corr <- round(cor(coins.changes), 2)
+coins.changes.corr.p <- round(cor_pmat(coins.changes), 2)
+ggcorrplot(coins.changes.corr, ggtheme = ggplot2::theme_bw(), p.mat = coins.changes.corr.p, title = "Coin Changes") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+# Coin Returns
+coins.returns.corr <- round(cor(coins.returns), 2)
+coins.returns.corr.p <- round(cor_pmat(coins.returns), 2)
+ggcorrplot(coins.returns.corr, ggtheme = ggplot2::theme_bw(), p.mat = coins.returns.corr.p, title = "Coin Returns") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+```
+
+
+Post-COVID19
+```{r}
+
+nmonths <- 10
+coins.prices <- data.frame(matrix(nrow = nmonths, ncol = 0))
+coins.changes <- data.frame(matrix(nrow = nmonths, ncol = 0))
+coins.volumes <- data.frame(matrix(nrow = nmonths, ncol = 0))
+coins.returns <- data.frame(matrix(nrow = nmonths, ncol = 0))
+coins.volatility <- data.frame(matrix(nrow = nmonths, ncol = 0))
+
+price_cols <- c("Date", "Close", "Volume", "change", "returns", "volatility")
+for (fname in list.files(paste("datasets/monthly/coins", sep = "/"))) {
+  symbol <- str_split(fname, "-", simplify = T)[1]
+  values <- fread(paste("datasets/monthly/coins", fname, sep = "/")) %>% as.data.frame() %>% filter(Date >= "2021-01-01") %>% select(all_of(price_cols)) %>% arrange(Date)
+
+  if (!any(is.na(values$Close))) {
+   coins.prices[symbol] <- values$Close 
+   coins.changes[symbol] <- values$change
+   coins.returns[symbol] <- values$returns
+   coins.volatility[symbol] <- values$volatility
+  }
+}
+
+# Coin Prices
+coins.prices.corr <- round(cor(coins.prices), 2)
+coins.prices.corr.p <- round(cor_pmat(coins.prices), 2)
+ggcorrplot(coins.prices.corr, ggtheme = ggplot2::theme_bw(), p.mat = coins.prices.corr.p, title = "Coin Prices") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+# Coin Volatility
+coins.volatility.corr <- round(cor(coins.volatility), 2)
+coins.volatility.corr.p <- round(cor_pmat(coins.volatility), 2)
+ggcorrplot(coins.volatility.corr, ggtheme = ggplot2::theme_bw(), p.mat = coins.volatility.corr.p, title = "Coin Volatility") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+# Coin Changes
+coins.changes.corr <- round(cor(coins.changes), 2)
+coins.changes.corr.p <- round(cor_pmat(coins.changes), 2)
+ggcorrplot(coins.changes.corr, ggtheme = ggplot2::theme_bw(), p.mat = coins.changes.corr.p, title = "Coin Changes") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+# Coin Returns
+coins.returns.corr <- round(cor(coins.returns), 2)
+coins.returns.corr.p <- round(cor_pmat(coins.returns), 2)
+ggcorrplot(coins.returns.corr, ggtheme = ggplot2::theme_bw(), p.mat = coins.returns.corr.p, title = "Coin Returns") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+
+```
+

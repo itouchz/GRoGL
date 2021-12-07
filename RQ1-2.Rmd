@@ -1,0 +1,381 @@
+---
+title: "RQ1-2: Correlation Analysis with Uncertainty Indices"
+author: "CS564 Team 10"
+output: html_notebook
+editor_options: 
+  chunk_output_type: console
+---
+
+Load Datasets
+```{r}
+suppressMessages(library(data.table))
+suppressMessages(library(readxl))
+suppressMessages(library(dplyr))
+suppressMessages(library(stringr))
+suppressMessages(library(ggplot2))
+suppressMessages(library(ggcorrplot))
+suppressMessages(library(tidyr))
+suppressMessages(library(rstatix))
+
+set.seed(7)
+theme_set(theme_bw())
+theme_settings <- theme(
+  axis.title.x = element_text(angle = 0, color = "black"), 
+  axis.title.y = element_text(angle = 90, color = "black"),
+  axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size = 8),
+  axis.text.y = element_text(size = 8),
+)
+center_title <- theme(
+  plot.title = element_text(hjust = 0.5)
+)
+
+
+# Metadata
+coin_features <- fread("datasets/coin_features.csv") %>% as.data.frame()
+ticker_info <- fread("datasets/ticker_info.csv") %>% as.data.frame()
+```
+
+
+Pre-COVID19
+```{r}
+s.date <- "2019-01-01"
+e.date <- "2019-12-31"
+
+ndays <- 365
+prices.daily <- data.frame(matrix(nrow = ndays, ncol = 0))
+changes.daily <- data.frame(matrix(nrow = ndays, ncol = 0))
+returns.daily <- data.frame(matrix(nrow = ndays, ncol = 0))
+
+nmonths <- 12
+prices.monthly <- data.frame(matrix(nrow = nmonths, ncol = 0))
+changes.monthly <- data.frame(matrix(nrow = nmonths, ncol = 0))
+returns.monthly <- data.frame(matrix(nrow = nmonths, ncol = 0))
+volatility.monthly <- data.frame(matrix(nrow = nmonths, ncol = 0))
+
+price_cols <- c("Date", "Close", "Volume", "change", "returns", "volatility")
+for (fname in list.files(paste("datasets/daily/coins", sep = "/"))) {
+  symbol <- str_split(fname, "-", simplify = T)[1]
+  values.daily <- fread(paste("datasets/daily/coins", fname, sep = "/")) %>% mutate(Date = as.character(Date)) %>% filter(Date >= s.date & Date <= e.date) %>% select(all_of(price_cols)) %>% arrange(Date) %>% fill(everything(), .direction = "downup") %>% select_if(colSums(!is.na(.)) > 0)
+  values.monthly <- fread(paste("datasets/monthly/coins", fname, sep = "/")) %>% filter(Date >= s.date & Date <= e.date) %>% select(all_of(price_cols)) %>% arrange(Date) %>% fill(everything(), .direction = "downup") %>% select_if(colSums(!is.na(.)) > 0)
+
+  values.daily <- values.daily %>% as.data.frame()
+  values.monthly <- values.monthly %>% as.data.frame()
+  
+  prices.daily$Date <- values.daily$Date
+  changes.daily$Date <- values.daily$Date
+  returns.daily$Date <- values.daily$Date
+
+  prices.daily[symbol] <- values.daily$Close 
+  changes.daily[symbol] <- values.daily$change
+  returns.daily[symbol] <- values.daily$returns
+  
+  prices.monthly$Date <- values.monthly$Date
+  changes.monthly$Date <- values.monthly$Date
+  returns.monthly$Date <- values.monthly$Date
+  volatility.monthly$Date <- values.monthly$Date
+
+  prices.monthly[symbol] <- values.monthly$Close 
+  changes.monthly[symbol] <- values.monthly$change
+  returns.monthly[symbol] <- values.monthly$returns
+  volatility.monthly[symbol] <- values.monthly$returns
+}
+
+gpr.daily.peri <- fread("datasets/gpr_daily_recent.csv") %>%  mutate(DATE = as.Date(as.character(DATE), format = "%Y%m%d")) %>% filter(DATE >= "2019-01-01" & DATE <= "2019-12-31") %>% arrange(DATE) %>% fill(everything(), .direction = "downup") %>% mutate(DATE = as.character(DATE))
+teu.daily.peri <- fread("datasets/Twitter_Economic_Uncertainty.csv") %>% filter(Date >= "2019-01-01" & Date <= "2019-12-31") %>% arrange(Date) %>% fill(everything(), .direction = "downup") %>% mutate(Date = as.character(Date))
+
+for (aspect in c("Prices", "Changes", "Returns")) {
+  lower.aspect <- tolower(aspect)
+  aspect.data <- get(paste(lower.aspect, "daily", sep = "."))
+  cor.data <- left_join(aspect.data, gpr.daily.peri, by = c("Date" = "DATE"))
+  cor.data <- left_join(cor.data, teu.daily.peri, by = c("Date" = "Date")) %>% mutate(Date = as.Date(Date))
+  cor.matrix <- cor_mat(cor.data[-1])
+  cor.matrix <- cor.matrix %>% select(c("rowname", names(aspect.data[-1]))) %>% filter(!rowname %in% names(aspect.data[-1]))
+  attr(cor.matrix, "pvalue") <- attr(cor.matrix, "pvalue") %>% select(c("rowname", names(aspect.data[-1]))) %>% filter(!rowname %in% names(aspect.data[-1]))
+  assign(paste(lower.aspect, "daily", "corr", sep = "."), cor.matrix)
+
+  ts.data <- cor.data
+  ts.data[-1] <- scale(ts.data[-1])
+  melt.data <- reshape2::melt(ts.data, "Date", value.name = "Values", variable.name = "Index")
+  assign(paste(lower.aspect, "daily", "melt", sep = "."), melt.data)
+}
+
+gepu.monthly.pre <- fread("datasets/GEPU_Country_Data.csv") %>% filter(Year == "2019") %>% arrange(Month) %>% fill(everything(), .direction = "downup")
+gpr.monthly.pre <- fread("datasets/gpr_export.csv") %>% filter(month >= "2019-01" & month <= "2019-12") %>% arrange(month) %>% fill(everything(), .direction = "downup")
+
+for (aspect in c("Prices", "Changes", "Returns", "Volatility")) {
+  lower.aspect <- tolower(aspect)
+  aspect.data <- get(paste(lower.aspect, "monthly", sep = "."))[-1]
+  cor.data <- bind_cols(aspect.data, gpr.monthly.pre[, -1], gepu.monthly.pre[, -1])
+  cor.matrix <- cor_mat(cor.data)
+  cor.matrix <- cor.matrix %>% select(c("rowname", names(aspect.data))) %>% filter(!rowname %in% names(aspect.data))
+  attr(cor.matrix, "pvalue") <- attr(cor.matrix, "pvalue") %>% select(c("rowname", names(aspect.data))) %>% filter(!rowname %in% names(aspect.data))
+  assign(paste(lower.aspect, "monthly", "corr", sep = "."), cor.matrix)
+
+  ts.data <- bind_cols(get(paste(lower.aspect, "monthly", sep = ".")), gpr.monthly.pre[, -1], gepu.monthly.pre[, -1])
+  ts.data[-1] <- scale(ts.data[-1])
+  melt.data <- reshape2::melt(ts.data, "Date", value.name = "Values", variable.name = "Index")
+  assign(paste(lower.aspect, "monthly", "melt", sep = "."), melt.data)
+}
+
+
+# Visualization
+for (level in c("monthly")) {
+  for (aspect in c("Prices", "Changes", "Returns")) {
+    lower.aspect <- tolower(aspect)
+    melt.data <- get(paste(lower.aspect, level, "melt", sep = "."))
+    ts.chart <- ggplot(data = melt.data, aes(x = Date, y = Values, color = Index)) +
+      ggtitle(paste("Movement of", aspect, "with Economic Uncertainty Index (2019)")) +
+      geom_line() + 
+      center_title +
+      guides(col = guide_legend(ncol = 20)) +
+      theme(legend.position = "bottom", legend.direction = "vertical")
+  
+    cor.matrix <- get(paste(lower.aspect, level, "corr", sep = "."))
+    cor.chart <- ggcorrplot(cor.matrix, pch.cex = 1) + 
+      labs(x = "Index", y = "Cryptocurrency") + 
+      ggtitle(paste("Correlation between", aspect, "and EUIs (2019)")) +
+      theme_settings + center_title
+    
+    assign(paste(lower.aspect, level, "cor.chart.pre", sep = "."), cor.chart)
+    assign(paste(lower.aspect, level, "ts.chart.pre", sep = "."), ts.chart)
+    print(ts.chart)
+    print(cor.chart)
+  }
+}
+
+```
+
+Peri-COVID19
+```{r}
+gepu.monthly.peri <- fread("datasets/GEPU_Country_Data.csv") %>% filter(Year == "2020") %>% arrange(Month) %>% fill(everything(), .direction = "downup")
+gpr.daily.peri <- fread("datasets/gpr_daily_recent.csv") %>%  mutate(DATE = as.Date(as.character(DATE), format = "%Y%m%d")) %>% filter(DATE >= "2020-01-01" & DATE <= "2020-12-31") %>% arrange(DATE) %>% fill(everything(), .direction = "downup") %>% mutate(DATE = as.character(DATE))
+
+gpr.monthly.peri <- fread("datasets/gpr_export.csv") %>% filter(month >= "2020-01" & month <= "2020-12") %>% arrange(month) %>% fill(everything(), .direction = "downup")
+teu.daily.peri <- fread("datasets/Twitter_Economic_Uncertainty.csv") %>% filter(Date >= "2020-01-01" & Date <= "2020-12-31") %>% arrange(Date) %>% fill(everything(), .direction = "downup") %>% mutate(Date = as.character(Date))
+
+s.date <- "2020-01-01"
+e.date <- "2020-12-31"
+
+ndays <- 362
+prices.daily <- data.frame(matrix(nrow = ndays, ncol = 0))
+changes.daily <- data.frame(matrix(nrow = ndays, ncol = 0))
+returns.daily <- data.frame(matrix(nrow = ndays, ncol = 0))
+
+nmonths <- 12
+prices.monthly <- data.frame(matrix(nrow = nmonths, ncol = 0))
+changes.monthly <- data.frame(matrix(nrow = nmonths, ncol = 0))
+returns.monthly <- data.frame(matrix(nrow = nmonths, ncol = 0))
+volatility.monthly <- data.frame(matrix(nrow = nmonths, ncol = 0))
+
+price_cols <- c("Date", "Close", "Volume", "change", "returns", "volatility")
+for (fname in list.files(paste("datasets/daily/coins", sep = "/"))) {
+  symbol <- str_split(fname, "-", simplify = T)[1]
+  values.daily <- fread(paste("datasets/daily/coins", fname, sep = "/")) %>% mutate(Date = as.character(Date)) %>% filter(Date >= s.date & Date <= e.date) %>% select(all_of(price_cols)) %>% arrange(Date) %>% fill(everything(), .direction = "downup") %>% select_if(colSums(!is.na(.)) > 0)
+  values.monthly <- fread(paste("datasets/monthly/coins", fname, sep = "/")) %>% filter(Date >= s.date & Date <= e.date) %>% select(all_of(price_cols)) %>% arrange(Date) %>% fill(everything(), .direction = "downup") %>% select_if(colSums(!is.na(.)) > 0)
+
+  values.daily <- values.daily %>% as.data.frame()
+  values.monthly <- values.monthly %>% as.data.frame()
+  
+  prices.daily$Date <- values.daily$Date
+  changes.daily$Date <- values.daily$Date
+  returns.daily$Date <- values.daily$Date
+
+  prices.daily[symbol] <- values.daily$Close 
+  changes.daily[symbol] <- values.daily$change
+  returns.daily[symbol] <- values.daily$returns
+  
+  prices.monthly$Date <- values.monthly$Date
+  changes.monthly$Date <- values.monthly$Date
+  returns.monthly$Date <- values.monthly$Date
+  volatility.monthly$Date <- values.monthly$Date
+
+  prices.monthly[symbol] <- values.monthly$Close 
+  changes.monthly[symbol] <- values.monthly$change
+  returns.monthly[symbol] <- values.monthly$returns
+  volatility.monthly[symbol] <- values.monthly$returns
+}
+
+for (aspect in c("Prices", "Changes", "Returns")) {
+  lower.aspect <- tolower(aspect)
+  aspect.data <- get(paste(lower.aspect, "daily", sep = "."))
+  cor.data <- left_join(aspect.data, gpr.daily.peri, by = c("Date" = "DATE"))
+  cor.data <- left_join(cor.data, teu.daily.peri, by = c("Date" = "Date")) %>% mutate(Date = as.Date(Date))
+  cor.matrix <- cor_mat(cor.data[-1])
+  cor.matrix <- cor.matrix %>% select(c("rowname", names(aspect.data[-1]))) %>% filter(!rowname %in% names(aspect.data[-1]))
+  attr(cor.matrix, "pvalue") <- attr(cor.matrix, "pvalue") %>% select(c("rowname", names(aspect.data[-1]))) %>% filter(!rowname %in% names(aspect.data[-1]))
+  assign(paste(lower.aspect, "daily", "corr", sep = "."), cor.matrix)
+
+  ts.data <- cor.data
+  ts.data[-1] <- scale(ts.data[-1])
+  melt.data <- reshape2::melt(ts.data, "Date", value.name = "Values", variable.name = "Index")
+  assign(paste(lower.aspect, "daily", "melt", sep = "."), melt.data)
+}
+
+
+# for (aspect in c("Prices", "Changes", "Returns", "Volatility")) {
+#   lower.aspect <- tolower(aspect)
+#   aspect.data <- get(paste(lower.aspect, "monthly", sep = "."))[-1]
+#   cor.data <- bind_cols(aspect.data, gpr.monthly.pre[, -1], gepu.monthly.pre[, -1])
+#   cor.matrix <- cor_mat(cor.data) %>% cor_reorder()
+#   cor.matrix <- cor.matrix %>% select(c("rowname", names(aspect.data))) %>% filter(!rowname %in% names(aspect.data))
+#   attr(cor.matrix, "pvalue") <- attr(cor.matrix, "pvalue") %>% select(c("rowname", names(aspect.data))) %>% filter(!rowname %in% names(aspect.data))
+#   assign(paste(lower.aspect, "monthly", "corr", sep = "."), cor.matrix)
+# 
+#   ts.data <- bind_cols(get(paste(lower.aspect, "monthly", sep = ".")), gpr.monthly.pre[, -1], gepu.monthly.pre[, -1])
+#   ts.data[-1] <- scale(ts.data[-1])
+#   melt.data <- reshape2::melt(ts.data, "Date", value.name = "Values", variable.name = "Index")
+#   assign(paste(lower.aspect, "monthly", "melt", sep = "."), melt.data)
+# }
+
+
+# Visualization
+for (level in c("daily")) {
+  for (aspect in c("Prices", "Changes", "Returns")) {
+    lower.aspect <- tolower(aspect)
+    melt.data <- get(paste(lower.aspect, level, "melt", sep = "."))
+    ts.chart <- ggplot(data = melt.data, aes(x = Date, y = Values, color = Index)) +
+      ggtitle(paste("Movement of", aspect, "with Economic Uncertainty Index (2020)")) +
+      geom_line() + 
+      center_title +
+      guides(col = guide_legend(ncol = 20)) +
+      theme(legend.position = "bottom", legend.direction = "vertical")
+  
+    cor.matrix <- get(paste(lower.aspect, level, "corr", sep = "."))
+    cor.chart <- ggcorrplot(cor.matrix, pch.cex = 1) + 
+      labs(x = "Index", y = "Cryptocurrency") + 
+      ggtitle(paste("Correlation between", aspect, "and EUIs (2020)")) +
+      theme_settings + center_title
+    
+    assign(paste(lower.aspect, level, "cor.chart.peri", sep = "."), cor.chart)
+    assign(paste(lower.aspect, level, "ts.chart.peri", sep = "."), ts.chart)
+    print(ts.chart)
+    print(cor.chart)
+  }
+}
+
+x.names <- names(prices.daily[-1])
+x.names <- x.names[x.names != "IOST"]
+cor.data <- left_join(prices.daily, gpr.daily.peri, by = c("Date" = "DATE"))
+cor.data <- left_join(cor.data, teu.daily.peri, by = c("Date" = "Date")) %>% mutate(Date = as.Date(Date)) %>% select(!x.names)
+ts.data <- cor.data
+ts.data[-1] <- scale(ts.data[-1])
+melt.data <- reshape2::melt(ts.data, "Date", value.name = "Values", variable.name = "Index")
+
+ggplot(data = melt.data, aes(x = Date, y = Values, color = Index)) +
+      ggtitle(paste("Prices with Policy Uncertainty Indices (2020)")) +
+      geom_line() + 
+      center_title +
+      guides(col = guide_legend(ncol = 20)) +
+      theme(legend.position = "none", legend.direction = "vertical") + facet_wrap(~Index)
+
+```
+
+Post-COVID19
+```{r}
+gepu.monthly.post <- fread("datasets/GEPU_Country_Data.csv") %>% filter(Year == "2021") %>% arrange(Month) %>% fill(everything(), .direction = "downup")
+gpr.daily.post <- fread("datasets/gpr_daily_recent.csv") %>%  mutate(DATE = as.Date(as.character(DATE), format = "%Y%m%d")) %>% filter(DATE >= "2021-01-01" & DATE <= "2021-12-31") %>% arrange(DATE) %>% fill(everything(), .direction = "downup") %>% mutate(DATE = as.character(DATE))
+
+gpr.monthly.post <- fread("datasets/gpr_export.csv") %>% filter(month >= "2021-01" & month <= "2021-12") %>% arrange(month) %>% fill(everything(), .direction = "downup")
+teu.daily.post <- fread("datasets/Twitter_Economic_Uncertainty.csv") %>% filter(Date >= "2021-01-01" & Date <= "2021-12-31") %>% arrange(Date) %>% fill(everything(), .direction = "downup") %>% mutate(Date = as.character(Date))
+
+s.date <- "2021-01-01"
+e.date <- "2021-12-31"
+
+ndays <- 304
+prices.daily <- data.frame(matrix(nrow = ndays, ncol = 0))
+changes.daily <- data.frame(matrix(nrow = ndays, ncol = 0))
+returns.daily <- data.frame(matrix(nrow = ndays, ncol = 0))
+
+nmonths <- 10
+prices.monthly <- data.frame(matrix(nrow = nmonths, ncol = 0))
+changes.monthly <- data.frame(matrix(nrow = nmonths, ncol = 0))
+returns.monthly <- data.frame(matrix(nrow = nmonths, ncol = 0))
+volatility.monthly <- data.frame(matrix(nrow = nmonths, ncol = 0))
+
+price_cols <- c("Date", "Close", "Volume", "change", "returns", "volatility")
+for (fname in list.files(paste("datasets/daily/coins", sep = "/"))) {
+  symbol <- str_split(fname, "-", simplify = T)[1]
+  values.daily <- fread(paste("datasets/daily/coins", fname, sep = "/")) %>% mutate(Date = as.character(Date)) %>% filter(Date >= s.date & Date <= e.date) %>% select(all_of(price_cols)) %>% arrange(Date) %>% fill(everything(), .direction = "downup") %>% select_if(colSums(!is.na(.)) > 0)
+  values.monthly <- fread(paste("datasets/monthly/coins", fname, sep = "/")) %>% filter(Date >= s.date & Date <= e.date) %>% select(all_of(price_cols)) %>% arrange(Date) %>% fill(everything(), .direction = "downup") %>% select_if(colSums(!is.na(.)) > 0)
+
+  values.daily <- values.daily %>% as.data.frame()
+  values.monthly <- values.monthly %>% as.data.frame()
+  
+  prices.daily$Date <- values.daily$Date
+  changes.daily$Date <- values.daily$Date
+  returns.daily$Date <- values.daily$Date
+
+  prices.daily[symbol] <- values.daily$Close 
+  changes.daily[symbol] <- values.daily$change
+  returns.daily[symbol] <- values.daily$returns
+  
+  prices.monthly$Date <- values.monthly$Date
+  changes.monthly$Date <- values.monthly$Date
+  returns.monthly$Date <- values.monthly$Date
+  volatility.monthly$Date <- values.monthly$Date
+
+  prices.monthly[symbol] <- values.monthly$Close 
+  changes.monthly[symbol] <- values.monthly$change
+  returns.monthly[symbol] <- values.monthly$returns
+  volatility.monthly[symbol] <- values.monthly$returns
+}
+
+for (aspect in c("Prices", "Changes", "Returns")) {
+  lower.aspect <- tolower(aspect)
+  aspect.data <- get(paste(lower.aspect, "daily", sep = "."))
+  cor.data <- left_join(aspect.data, gpr.daily.post, by = c("Date" = "DATE"))
+  cor.data <- left_join(cor.data, teu.daily.post, by = c("Date" = "Date")) %>% mutate(Date = as.Date(Date))
+  cor.matrix <- cor_mat(cor.data[-1]) 
+  cor.matrix <- cor.matrix %>% select(c("rowname", names(aspect.data[-1]))) %>% filter(!rowname %in% names(aspect.data[-1]))
+  attr(cor.matrix, "pvalue") <- attr(cor.matrix, "pvalue") %>% select(c("rowname", names(aspect.data[-1]))) %>% filter(!rowname %in% names(aspect.data[-1]))
+  assign(paste(lower.aspect, "daily", "corr", sep = "."), cor.matrix)
+
+  ts.data <- cor.data
+  ts.data[-1] <- scale(ts.data[-1])
+  melt.data <- reshape2::melt(ts.data, "Date", value.name = "Values", variable.name = "Index")
+  assign(paste(lower.aspect, "daily", "melt", sep = "."), melt.data)
+}
+
+
+# for (aspect in c("Prices", "Changes", "Returns", "Volatility")) {
+#   lower.aspect <- tolower(aspect)
+#   aspect.data <- get(paste(lower.aspect, "monthly", sep = "."))[-1]
+#   cor.data <- bind_cols(aspect.data, gpr.monthly.pre[, -1], gepu.monthly.pre[, -1])
+#   cor.matrix <- cor_mat(cor.data) %>% cor_reorder()
+#   cor.matrix <- cor.matrix %>% select(c("rowname", names(aspect.data))) %>% filter(!rowname %in% names(aspect.data))
+#   attr(cor.matrix, "pvalue") <- attr(cor.matrix, "pvalue") %>% select(c("rowname", names(aspect.data))) %>% filter(!rowname %in% names(aspect.data))
+#   assign(paste(lower.aspect, "monthly", "corr", sep = "."), cor.matrix)
+# 
+#   ts.data <- bind_cols(get(paste(lower.aspect, "monthly", sep = ".")), gpr.monthly.pre[, -1], gepu.monthly.pre[, -1])
+#   ts.data[-1] <- scale(ts.data[-1])
+#   melt.data <- reshape2::melt(ts.data, "Date", value.name = "Values", variable.name = "Index")
+#   assign(paste(lower.aspect, "monthly", "melt", sep = "."), melt.data)
+# }
+
+
+# Visualization
+for (level in c("daily")) {
+  for (aspect in c("Prices", "Changes", "Returns")) {
+    lower.aspect <- tolower(aspect)
+    melt.data <- get(paste(lower.aspect, level, "melt", sep = "."))
+    ts.chart <- ggplot(data = melt.data, aes(x = Date, y = Values, color = Index)) +
+      ggtitle(paste("Movement of", aspect, "with Economic Uncertainty Index (2021)")) +
+      geom_line() + 
+      center_title +
+      guides(col = guide_legend(ncol = 20)) +
+      theme(legend.position = "bottom", legend.direction = "vertical")
+  
+    cor.matrix <- get(paste(lower.aspect, level, "corr", sep = "."))
+    cor.chart <- ggcorrplot(cor.matrix, pch.cex = 1) + 
+      labs(x = "Index", y = "Cryptocurrency") + 
+      ggtitle(paste("Correlation between", aspect, "and EUIs (2021)")) +
+      theme_settings + center_title
+    
+    assign(paste(lower.aspect, level, "cor.chart.post", sep = "."), cor.chart)
+    assign(paste(lower.aspect, level, "ts.chart.post", sep = "."), ts.chart)
+    print(ts.chart)
+    print(cor.chart)
+  }
+}
+```
+

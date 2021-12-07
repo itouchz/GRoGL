@@ -1,0 +1,160 @@
+---
+title: "RQ1-1: Correlation Analysis with Stock, World, Commodity Indices"
+author: "CS564 Team 10"
+output: html_notebook
+---
+Load Datasets
+```{r}
+suppressMessages(library(data.table))
+suppressMessages(library(readxl))
+suppressMessages(library(dplyr))
+suppressMessages(library(stringr))
+suppressMessages(library(ggplot2))
+suppressMessages(library(ggcorrplot))
+suppressMessages(library(tidyr))
+suppressMessages(library(rstatix))
+
+set.seed(7)
+theme_set(theme_bw())
+theme_settings <- theme(
+  axis.title.x = element_text(angle = 0, color = "black"), 
+  axis.title.y = element_text(angle = 90, color = "black"),
+  axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size = 10),
+  axis.text.y = element_text(size = 10),
+)
+center_title <- theme(
+  plot.title = element_text(hjust = 0.5)
+)
+
+# Metadata
+coin_features <- fread("datasets/coin_features.csv") %>% as.data.frame()
+ticker_info <- fread("datasets/ticker_info.csv") %>% as.data.frame()
+```
+
+
+Pre-COVID19
+```{r}
+
+ndays <- 365
+prices <- data.frame(matrix(nrow = ndays, ncol = 0))
+changes <- data.frame(matrix(nrow = ndays, ncol = 0))
+returns <- data.frame(matrix(nrow = ndays, ncol = 0))
+volatility <- data.frame(matrix(nrow = ndays, ncol = 0))
+
+price_cols <- c("Date", "Close", "Volume", "change", "returns", "volatility")
+for (fname in list.files(paste("datasets/daily/coins", sep = "/"))) {
+  symbol <- str_split(fname, "-", simplify = T)[1]
+  values <- fread(paste("datasets/daily/coins", fname, sep = "/")) %>% filter(Date >= "2019-01-01" & Date <= "2019-12-31") %>% select(all_of(price_cols)) %>% arrange(Date) %>% fill(everything(), .direction = "downup") %>% select_if(colSums(!is.na(.)) > 0)
+
+  prices$Date <- values$Date
+  changes$Date <- values$Date
+  returns$Date <- values$Date
+
+  prices[symbol] <- values$Close 
+  changes[symbol] <- values$change
+  returns[symbol] <- values$returns
+}
+
+prices.tech <- prices
+changes.tech <- changes
+returns.tech <- returns
+for (fname in list.files(paste("datasets/daily/tech", sep = "/"))) {
+  symbol <- str_split(fname, "\\.", simplify = T)[1]
+  values <- fread(paste("datasets/daily/tech/", fname, sep = "/")) %>% filter(Date >= "2019-01-01" & Date <= "2019-12-31") %>% select(all_of(price_cols)) %>% arrange(Date)
+
+  # join with Date of coins
+  prices.tech <- inner_join(x = prices.tech, y = values[c("Date", "Close")], by = "Date") %>% fill(everything(), .direction = "downup") %>% select_if(colSums(!is.na(.)) > 0)
+  names(prices.tech)[length(prices.tech)] <- symbol
+  
+  changes.tech <- inner_join(x = changes.tech, y = values[c("Date", "change")], by = "Date") %>% fill(everything(), .direction = "downup") %>% select_if(colSums(!is.na(.)) > 0)
+  names(changes.tech)[length(changes.tech)] <- symbol
+  
+  returns.tech <- inner_join(x = returns.tech, y = values[c("Date", "returns")], by = "Date") %>% fill(everything(), .direction = "downup") %>% select_if(colSums(!is.na(.)) > 0)
+  names(returns.tech)[length(returns.tech)] <- symbol
+}
+
+prices.indices<- prices
+changes.indices <- changes
+returns.indices <- returns
+for (fname in list.files(paste("datasets/daily/indices", sep = "/"))) {
+  symbol <- str_split(fname, "\\.", simplify = T)[1]
+  values <- fread(paste("datasets/daily/indices/", fname, sep = "/")) %>% filter(Date >= "2019-01-01" & Date <= "2019-12-31") %>% select(all_of(price_cols)) %>% arrange(Date)
+
+  # join with Date of coins
+  prices.indices <- inner_join(x = prices.indices, y = values[c("Date", "Close")], by = "Date") %>% fill(everything(), .direction = "downup") %>% select_if(colSums(!is.na(.)) > 0)
+  names(prices.indices)[length(prices.indices)] <- symbol
+  
+  changes.indices <- inner_join(x = changes.indices, y = values[c("Date", "change")], by = "Date") %>% fill(everything(), .direction = "downup") %>% select_if(colSums(!is.na(.)) > 0)
+  names(changes.indices)[length(changes.indices)] <- symbol
+  
+  returns.indices <- inner_join(x = returns.indices, y = values[c("Date", "returns")], by = "Date") %>% fill(everything(), .direction = "downup") %>% select_if(colSums(!is.na(.)) > 0)
+  names(returns.indices)[length(returns.indices)] <- symbol
+}
+
+# prices.sp500 <- prices
+# changes.sp500 <- changes
+# returns.sp500 <- returns
+# for (fname in list.files(paste("datasets/daily/S&P_500", sep = "/"))) {
+#   symbol <- str_split(fname, "\\.", simplify = T)[1]
+#   values <- fread(paste("datasets/daily/S&P_500", fname, sep = "/")) %>% filter(Date >= "2019-01-01" & Date <= "2019-12-31") %>% select(all_of(price_cols)) %>% arrange(Date)
+# 
+#   # join with Date of coins
+#   prices.sp500 <- inner_join(x = prices.sp500, y = values[c("Date", "Close")], by = "Date") %>% fill(everything(), .direction = "downup") %>% select_if(colSums(!is.na(.)) > 0)
+#   names(prices.sp500)[length(prices.sp500)] <- symbol
+#   
+#   changes.sp500 <- inner_join(x = changes.sp500, y = values[c("Date", "change")], by = "Date") %>% fill(everything(), .direction = "downup") %>% select_if(colSums(!is.na(.)) > 0)
+#   names(changes.sp500)[length(changes.sp500)] <- symbol
+#   
+#   returns.sp500 <- inner_join(x = returns.sp500, y = values[c("Date", "returns")], by = "Date") %>% fill(everything(), .direction = "downup") %>% select_if(colSums(!is.na(.)) > 0)
+#   names(returns.sp500)[length(returns.sp500)] <- symbol
+# }
+
+# Correlation Analysis
+for (aspect in c("prices", "changes", "returns")) {
+  for (factor in c("tech", "indices")) { # , "sp500"
+    aspect.data <- get(aspect)[-1]
+    cor.data <- get(paste(aspect, factor, sep = "."))[-1]
+    cor.matrix <- cor_mat(cor.data) %>% cor_reorder()
+    cor.matrix <- cor.matrix %>% select(c("rowname", names(aspect.data))) %>% filter(!rowname %in% names(aspect.data))
+    attr(cor.matrix, "pvalue") <- attr(cor.matrix, "pvalue") %>% select(c("rowname", names(aspect.data))) %>% filter(!rowname %in% names(aspect.data))
+    assign(paste(aspect, factor, "corr", sep = "."), cor.matrix)
+    
+    cor.matrix.plot <- ggcorrplot(cor.matrix, pch.cex = 1) + labs(x = "Ticker", y = "Cryptocurrency") + ggtitle(paste("Correlation in", aspect)) + theme_settings + center_title
+    assign(paste(aspect, factor, "corplot", sep = "."), cor.matrix.plot)
+    
+    ts.data <- get(paste(aspect, factor, sep = "."))
+    ts.data[-1] <- scale(ts.data[-1])
+    melt.data <- reshape2::melt(ts.data, "Date", value.name = "Values", variable.name = "Ticker")
+    assign(paste(aspect, factor, "melt", sep = "."), melt.data)
+    print(paste(aspect, factor, "ended!"))
+  }
+}
+
+# Visualization
+for (aspect in c("prices", "changes", "returns")) {
+  for (factor in c("tech", "indices")) { # , "sp500"
+    melt.data <- get(paste(aspect, factor, "melt", sep = "."))
+    ts.chart <- ggplot(data = melt.data, aes(x = Date, y = Values, color = Ticker)) +
+      ggtitle(paste("Movement of", aspect)) +
+      geom_line() + 
+      center_title +
+      guides(col = guide_legend(ncol = 30)) +
+      theme(legend.position = "bottom", legend.direction = "vertical")
+    cor.chart <- get(paste(aspect, factor, "corplot", sep = "."))
+    print(ts.chart)
+    print(cor.chart)
+  }
+}
+
+```
+
+Peri-COVID19
+```{r}
+
+```
+
+Post-COVID19
+```{r}
+
+```
+

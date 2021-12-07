@@ -1,0 +1,102 @@
+---
+title: "RQ5: Regression Analysis and Prediction"
+author: "CS564 Team 10"
+output: html_notebook
+---
+
+Load Datasets
+```{r}
+suppressMessages(library(data.table))
+suppressMessages(library(readxl))
+suppressMessages(library(dplyr))
+suppressMessages(library(stringr))
+suppressMessages(library(PerformanceAnalytics))
+suppressMessages(library(ggcorrplot))
+suppressMessages(library(ggplot2))
+suppressMessages(library(tidyr))
+suppressMessages(library(igraph))
+suppressMessages(library(ggraph))
+suppressMessages(library(rstatix))
+suppressMessages(library(runner))
+
+set.seed(7)
+theme_set(theme_bw())
+theme_settings <- theme(
+  axis.text.x = element_text(size = 20),
+  axis.text.y = element_text(size = 20),
+)
+center_title <- theme(
+  plot.title = element_text(hjust = 0.5)
+)
+
+# Metadata
+coin_features <- fread("datasets/coin_features.csv") %>% as.data.frame()
+ticker_info <- fread("datasets/ticker_info.csv") %>% as.data.frame()
+```
+
+
+```{r}
+
+ndays <- 365 + 362 + 304
+coins.prices <- data.frame(matrix(nrow = ndays, ncol = 0))
+coins.changes <- data.frame(matrix(nrow = ndays, ncol = 0))
+coins.returns <- data.frame(matrix(nrow = ndays, ncol = 0))
+
+price_cols <- c("Date", "Close", "Volume", "change", "returns", "volatility")
+for (fname in list.files(paste("datasets/daily/coins", sep = "/"))) {
+  symbol <- str_split(fname, "-", simplify = T)[1]
+  values <- fread(paste("datasets/daily/coins", fname, sep = "/")) %>% as.data.frame() %>% filter(Date >= "2019-01-01") %>% select(all_of(price_cols)) %>% arrange(Date)  %>% fill(everything(), .direction = "downup") %>% mutate(Year = str_split(Date, "-", simplify = T)[, 1]) %>% mutate(Year = case_when(Year == "2019" ~ "Pre-COVID19", Year == "2020" ~ "Peri-COVID19", Year == "2021" ~ "Post-COVID19"))
+
+  if (!any(is.na(values$Close))) {
+    coins.prices$Year <- values$Year
+    coins.changes$Year <- values$Year
+    coins.returns$Year <- values$Year
+    
+    coins.prices[symbol] <- values$Close 
+    coins.changes[symbol] <- values$change
+    coins.returns[symbol] <- values$returns
+  }
+}
+
+```
+
+
+```{r}
+ts.prices <- runner(coins.prices$ADA, k = 7, lag = 1) 
+ts.prices <- ts.prices[8:length(ts.prices)]
+ts.prices.df <- data.frame(t1 = numeric(), t2 = numeric(), t3 = numeric(), t4 = numeric(), t5 = numeric(), t6 = numeric(), t7 = numeric(), y = numeric())
+
+for (i in 1:(length(ts.prices) - 1)) {
+  x <- c(ts.prices[[i]], ts.prices[[i + 1]][[1]])
+  names(x) = c("t1", "t2", "t3", "t4", "t5", "t6", "t7", "y")
+  ts.prices.df <- bind_rows(ts.prices.df, x)
+}
+```
+
+
+```{r}
+reg.baseline <- lm(y ~ ., data = ts.prices.df)
+summary(reg.baseline)
+```
+
+
+Pre-COVID19
+```{r}
+
+
+```
+
+Peri-COVID19
+```{r}
+
+
+
+```
+
+Post-COVID19
+```{r}
+
+
+
+```
+

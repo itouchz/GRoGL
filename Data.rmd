@@ -1,0 +1,136 @@
+---
+title: "Exploratory Data Analysis"
+author: "CS564 Team 10"
+output: html_notebook
+---
+
+Load Datasets
+```{r}
+suppressMessages(library(data.table))
+suppressMessages(library(readxl))
+suppressMessages(library(dplyr))
+suppressMessages(library(stringr))
+
+set.seed(7)
+
+# Metadata
+coin_features <- fread("datasets/coin_features.csv") %>% as.data.frame()
+ticker_info <- fread("datasets/ticker_info.csv") %>% as.data.frame()
+
+
+# Prices
+levels <- c("daily", "monthly")
+quote_types <- c("coins", "commo", "indices", "tech", "S&P_500")
+period <- c("pre", "peri", "post")
+price_cols <- c("Date", "Close", "Volume", "change", "returns", "volatility")
+
+for (l in levels) {
+  for (qt in quote_types) {
+    for (fname in list.files(paste("datasets", l, qt, sep = "/"))) {
+      for (p in period) {
+        if (qt == "coins") {
+          symbol <- str_split(fname, "-", simplify = T)[1]
+        } else {
+          symbol <- str_split(fname, "\\.", simplify = T)[1]
+        }
+        if (p == "pre") {
+          values <- fread(paste("datasets", l, qt, fname, sep = "/")) %>% as.data.frame() %>% filter(Date >= "2019-01-01" & Date <= "2019-12-31") %>% select(all_of(price_cols)) %>% mutate(updown = if_else(change > 0, "up", "down"))
+        } else if (p == "peri") {
+          values <- fread(paste("datasets", l, qt, fname, sep = "/")) %>% as.data.frame() %>% filter(Date >= "2020-01-01" & Date <= "2020-12-31") %>% select(all_of(price_cols)) %>% mutate(updown = if_else(change > 0, "up", "down"))
+        } else {
+          values <- fread(paste("datasets", l, qt, fname, sep = "/")) %>% as.data.frame() %>% filter(Date >= "2021-01-01") %>% select(all_of(price_cols)) %>% mutate(updown = if_else(change > 0, "up", "down"))
+        }
+        var_name <- paste(qt, symbol, l, p, sep = ".")
+        assign(var_name, values)
+      }
+    }
+  }
+}
+
+
+# Economic Uncertainty Datasets
+gepu.monthly.pre <- fread("datasets/GEPU_Country_Data.csv") %>% as.data.frame() %>% filter(Year == "2019")
+gepu.monthly.peri <- fread("datasets/GEPU_Country_Data.csv") %>% as.data.frame() %>% filter(Year == "2020")
+gepu.monthly.post <- fread("datasets/GEPU_Country_Data.csv") %>% as.data.frame() %>% filter(Year == "2021")
+
+gpr.daily.pre <- fread("datasets/gpr_daily_recent.csv") %>% as.data.frame() %>% filter(DATE >= "20190101" & DATE <= "20191231")
+gpr.daily.peri <- fread("datasets/gpr_daily_recent.csv") %>% as.data.frame() %>% filter(DATE >= "20200101" & DATE <= "20201231")
+gpr.daily.post <- fread("datasets/gpr_daily_recent.csv") %>% as.data.frame() %>% filter(DATE >= "20210101")
+
+gpr.monthly.pre <- fread("datasets/gpr_export.csv") %>% as.data.frame() %>% filter(month >= "2019-01" & month <= "2019-12")
+gpr.monthly.peri <- fread("datasets/gpr_export.csv") %>% as.data.frame() %>% filter(month >= "2020-01" & month <= "2020-12")
+gpr.monthly.post <- fread("datasets/gpr_export.csv") %>% as.data.frame() %>% filter(month >= "2021-01")
+
+teu.daily.pre <- fread("datasets/Twitter_Economic_Uncertainty.csv") %>% as.data.frame() %>% filter(Date >= "2019-01-01" & Date <= "2019-12-31")
+teu.daily.peri <- fread("datasets/Twitter_Economic_Uncertainty.csv") %>% as.data.frame() %>% filter(Date >= "2020-01-01" & Date <= "2020-12-31")
+teu.daily.post <- fread("datasets/Twitter_Economic_Uncertainty.csv") %>% as.data.frame() %>% filter(Date >= "2021-01-01")
+
+
+# Popularity Datasets
+wiki.daily.pre <- fread("datasets/wiki_pageviews.csv") %>% as.data.frame() %>% filter(Date >= "2019-01-01" & Date <= "2019-12-31")
+wiki.daily.peri <- fread("datasets/wiki_pageviews.csv") %>% as.data.frame() %>% filter(Date >= "2020-01-01" & Date <= "2020-12-31")
+wiki.daily.post <- fread("datasets/wiki_pageviews.csv") %>% as.data.frame() %>% filter(Date >= "2021-01-01")
+
+for (fname in list.files("datasets/gtrends")) {
+  for (p in period) {
+    if (p == "pre") {
+      values <- fread(paste("datasets/gtrends", fname, sep = "/")) %>% as.data.frame() %>% filter(date >= "2019-01-01" & date <= "2019-12-31") %>% select(c(1, 2, 6))
+    } else if (p == "peri") {
+      values <- fread(paste("datasets/gtrends", fname, sep = "/")) %>% as.data.frame() %>% filter(date >= "2020-01-01" & date <= "2020-12-31") %>% select(c(1, 2, 6))
+    } else {
+      values <- fread(paste("datasets/gtrends", fname, sep = "/")) %>% as.data.frame() %>% filter(date >= "2021-01-01") %>% select(c(1, 2, 6))
+    }
+      var_name <- paste("gtrends", str_split(fname, "\\.", simplify = T)[1], p, sep = ".")
+      assign(var_name, values)
+  }
+}
+
+
+# Text Datasets
+news.cryptocurrency.pre <- read_excel("datasets/news/Cryptocurrency.xlsx") %>% as.data.frame() %>% filter(date >= "2019-01-01" & date <= "2019-12-31")
+news.cryptocurrency.peri <- read_excel("datasets/news/Cryptocurrency.xlsx") %>% as.data.frame() %>% filter(date >= "2020-01-01" & date <= "2020-12-31")
+news.cryptocurrency.post <- read_excel("datasets/news/Cryptocurrency.xlsx") %>% as.data.frame() %>% filter(date >= "2021-01-01")
+
+news.cryptocurrency_exchange.pre <- read_excel("datasets/news/Cryptocurrency_exchange.xlsx") %>% as.data.frame() %>% filter(date >= "2019-01-01" & date <= "2019-12-31")
+news.cryptocurrency_exchange.peri <- read_excel("datasets/news/Cryptocurrency_exchange.xlsx") %>% as.data.frame() %>% filter(date >= "2020-01-01" & date <= "2020-12-31")
+news.cryptocurrency_exchange.post <- read_excel("datasets/news/Cryptocurrency_exchange.xlsx") %>% as.data.frame() %>% filter(date >= "2021-01-01")
+
+news.cryptocurrency_market.pre <- read_excel("datasets/news/Cryptocurrency_market.xlsx") %>% as.data.frame() %>% filter(date >= "2019-01-01" & date <= "2019-12-31")
+news.cryptocurrency_market.peri <- read_excel("datasets/news/Cryptocurrency_market.xlsx") %>% as.data.frame() %>% filter(date >= "2020-01-01" & date <= "2020-12-31")
+news.cryptocurrency_market.post <- read_excel("datasets/news/Cryptocurrency_market.xlsx") %>% as.data.frame() %>% filter(date >= "2021-01-01")
+
+for (fname in list.files("datasets/tweets/cashtags_excel", pattern='*.xlsx')) {
+  for (p in period) {
+    if (p == "pre") {
+        values <- read_excel(paste("datasets/tweets/cashtags_excel", fname, sep = "/")) %>% as.data.frame() %>% filter(date >= "2019-01-01" & date <= "2019-12-31")
+    } else if (p == "peri") {
+      values <- read_excel(paste("datasets/tweets/cashtags_excel", fname, sep = "/")) %>% as.data.frame() %>% filter(date >= "2020-01-01" & date <= "2020-12-31")
+    } else {
+      values <- read_excel(paste("datasets/tweets/cashtags_excel", fname, sep = "/")) %>% as.data.frame() %>% filter(date >= "2021-01-01")
+    }
+  var_name <- paste("tweet", str_split(fname, "\\.", simplify = T)[1], p, sep = ".")
+  assign(var_name, values)
+  }
+}
+tweet.cryptocurrency.pre <- read_excel("datasets/tweets/Cryptocurrency.xlsx") %>% as.data.frame() %>% filter(date >= "2019-01-01" & date <= "2019-12-31")
+tweet.cryptocurrency.peri <- read_excel("datasets/tweets/Cryptocurrency.xlsx") %>% as.data.frame() %>% filter(date >= "2020-01-01" & date <= "2020-12-31")
+tweet.cryptocurrency.post <- read_excel("datasets/tweets/Cryptocurrency.xlsx") %>% as.data.frame() %>% filter(date >= "2021-01-01")
+
+for (fname in list.files("datasets/reddit/subreddit_excel")) {
+  for (p in period) {
+    if (p == "pre") {
+      values <- read_excel(paste("datasets/reddit/subreddit_excel", fname, sep = "/")) %>% select(c(2:6)) %>% as.data.frame() %>% filter(date >= "2019-01-01" & date <= "2019-12-31")
+    } else if (p == "peri") {
+      values <- read_excel(paste("datasets/reddit/subreddit_excel", fname, sep = "/")) %>% select(c(2:6)) %>% as.data.frame() %>% filter(date >= "2020-01-01" & date <= "2020-12-31")
+    } else {
+      values <- read_excel(paste("datasets/reddit/subreddit_excel", fname, sep = "/")) %>% select(c(2:6)) %>% as.data.frame() %>% filter(date >= "2021-01-01")
+    }
+    var_name <- paste("subreddit", str_split(fname, "\\.", simplify = T)[1], p, sep = ".")
+    assign(var_name, values)
+  }
+}
+reddit.cryptocurrency.pre <- read_excel("datasets/reddit/cryptocurrency_pre.xlsx") %>% as.data.frame() %>% select(c(2:6))
+reddit.cryptocurrency.peri <- read_excel("datasets/reddit/cryptocurrency_peri.xlsx") %>% as.data.frame() %>% select(c(2:6))
+reddit.cryptocurrency.post <- read_excel("datasets/reddit/cryptocurrency_post.xlsx") %>% as.data.frame() %>% select(c(2:6))
+```
+
