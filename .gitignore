@@ -2,6 +2,7 @@
 ./datasets
 ./keys.txt
 *.out
+.ipynb_checkpoints
 
 # History files
 .Rhistory
