@@ -2,6 +2,8 @@
 title: "RQ1-4: Correlation Analysis with Social Media Texts and News (i.e., Public Opinion)"
 author: "CS564 Team 10"
 output: html_notebook
+editor_options: 
+  chunk_output_type: console
 ---
 
 Load Datasets
@@ -12,19 +14,24 @@ suppressMessages(library(dplyr))
 suppressMessages(library(stringr))
 suppressMessages(library(ggplot2))
 suppressMessages(library(ggcorrplot))
-suppressMessages(library(tidyr))
 suppressMessages(library(rstatix))
+suppressMessages(library(tidytext))
+suppressMessages(library(sentimentr))
+suppressMessages(library(fastDummies))
+suppressMessages(library(tidyr))
 
 set.seed(7)
-theme_set(theme_bw())
 theme_set(theme_bw())
 theme_settings <- theme(
   axis.title.x = element_text(angle = 0, color = "black"), 
   axis.title.y = element_text(angle = 90, color = "black"),
   axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size = 10),
   axis.text.y = element_text(size = 10),
-  plot.title = element_text(hjust = 0.5),
 )
+center_title <- theme(
+  plot.title = element_text(hjust = 0.5)
+)
+
 
 
 # Metadata
@@ -34,76 +41,489 @@ ticker_info <- fread("datasets/ticker_info.csv") %>% as.data.frame()
 
 
 ```{r}
-n_tweets <- 0
-
-for (fname in list.files("datasets/tweets/cashtags_excel", pattern='*.xlsx')) {
-  for (p in period) {
-    if (p == "pre") {
-        values <- read_excel(paste("datasets/tweets/cashtags_excel", fname, sep = "/")) %>% as.data.frame() %>% filter(date >= "2019-01-01" & date <= "2019-12-31") %>% arrange(date)
-    } else if (p == "peri") {
-      values <- read_excel(paste("datasets/tweets/cashtags_excel", fname, sep = "/")) %>% as.data.frame() %>% filter(date >= "2020-01-01" & date <= "2020-12-31") %>% arrange(date)
-    } else {
-      values <- read_excel(paste("datasets/tweets/cashtags_excel", fname, sep = "/")) %>% as.data.frame() %>% filter(date >= "2021-01-01") %>% arrange(date)
-    }
-  var_name <- paste("tweet", str_split(fname, "\\.", simplify = T)[1], p, sep = ".")
-  assign(var_name, values)
-  n_tweets <- n_tweets + count(values)
-  }
-}
-
-n_reddits <- 0
-for (fname in list.files("datasets/reddit/subreddit_excel")) {
-  for (p in period) {
-    if (p == "pre") {
-      values <- read_excel(paste("datasets/reddit/subreddit_excel", fname, sep = "/")) %>% as.data.frame() %>% filter(date >= "2019-01-01" & date <= "2019-12-31") %>% arrange(date)
-    } else if (p == "peri") {
-      values <- read_excel(paste("datasets/reddit/subreddit_excel", fname, sep = "/")) %>% as.data.frame() %>% filter(date >= "2020-01-01" & date <= "2020-12-31") %>% arrange(date)
-    } else {
-      values <- read_excel(paste("datasets/reddit/subreddit_excel", fname, sep = "/")) %>% as.data.frame() %>% filter(date >= "2021-01-01") %>% arrange(date)
-    }
-    var_name <- paste("subreddit", str_split(fname, "\\.", simplify = T)[1], p, sep = ".")
-    assign(var_name, values)
-    n_reddits <- n_reddits + count(values)
-  }
-}
-
+# reddit_cols <- c("date", "content", "topic")
+# reddits <- data.frame(matrix(nrow = 0, ncol = length(reddit_cols)))
+# 
+# for (fname in list.files("datasets/reddit/subreddit_excel")) {
+#     values <- read_excel(paste("datasets/reddit/subreddit_excel", fname, sep = "/")) %>% filter(date >= "2019-01-01") %>%  mutate(content = paste(text, title)) %>% mutate(content = str_remove_all(content, '([^\'A-Za-z0-9@#_ ]+)')) %>% select(all_of(reddit_cols)) %>% filter(!is.na(content))
+#     reddits <- bind_rows(reddits, values)
+# }
+# 
+# reddit.cryptocurrency.pre <- read_excel("datasets/reddit/cryptocurrency_pre.xlsx") %>% filter(date >= "2019-01-01") %>% mutate(content = paste(text, title)) %>% mutate(content = str_remove_all(content, '([^\'A-Za-z0-9@#_ ]+)')) %>% select(all_of(reddit_cols)) %>% filter(!is.na(content))
+# reddit.cryptocurrency.peri <- read_excel("datasets/reddit/cryptocurrency_peri.xlsx") %>% filter(date >= "2019-01-01") %>% mutate(content = paste(text, title)) %>% mutate(content = str_remove_all(content, '([^\'A-Za-z0-9@#_ ]+)')) %>% select(all_of(reddit_cols)) %>% filter(!is.na(content))
+# reddit.cryptocurrency.post <- read_excel("datasets/reddit/cryptocurrency_post.xlsx") %>% filter(date >= "2019-01-01") %>% mutate(content = paste(text, title)) %>% mutate(content = str_remove_all(content, '([^\'A-Za-z0-9@#_ ]+)')) %>% select(all_of(reddit_cols)) %>% filter(!is.na(content))
+# reddits <- bind_rows(reddits, reddit.cryptocurrency.pre, reddit.cryptocurrency.peri, reddit.cryptocurrency.post) %>% select_if(colSums(!is.na(.)) > 0)
+# reddits <- reddits %>% select_if(colSums(!is.na(.)) > 0) %>% arrange(date)
+# 
+# sentiment_cols <- c("sentiment_negative", "sentiment_neutral", "sentiment_positive")
+# reddits.sentiments <- reddits %>% get_sentences("content") %>% sentiment_by() %>% mutate(sentiment = ifelse(ave_sentiment < 0.2, "negative", ifelse(ave_sentiment > 0.2, "positive", "neutral")))
+# reddits.sentiments <- dummy_cols(reddits.sentiments, remove_selected_columns = T, select_columns = "sentiment") %>% select(all_of(sentiment_cols))
+# reddits <- bind_cols(reddits, reddits.sentiments)
+# 
+# write.csv(reddits, "datasets/reddits_sentiments.csv", row.names = F)
+reddits <- fread("datasets/text_sentiments/reddits_sentiments.csv")
 ```
+
+
+```{r}
+# news_cols <- c("date", "content", "media")
+# news <- data.frame(matrix(nrow = 0, ncol = length(news_cols)))
+# 
+# news.cryptocurrency <- read_excel("datasets/news/Cryptocurrency.xlsx") %>% filter(date >= "2019-01-01") %>% mutate(content = paste(title, desc)) %>% mutate(content = str_remove_all(content, '([^\'A-Za-z0-9@#_ ]+)')) %>% select(all_of(news_cols))
+# news.cryptocurrency_exchange <- read_excel("datasets/news/Cryptocurrency_exchange.xlsx") %>% filter(date >= "2019-01-01") %>% mutate(content = paste(title, desc)) %>% mutate(content = str_remove_all(content, '([^\'A-Za-z0-9@#_ ]+)')) %>% select(all_of(news_cols))
+# news.cryptocurrency_market <- read_excel("datasets/news/Cryptocurrency_market.xlsx") %>% filter(date >= "2019-01-01") %>% mutate(content = paste(title, desc)) %>% mutate(content = str_remove_all(content, '([^\'A-Za-z0-9@#_ ]+)')) %>% select(all_of(news_cols))
+# 
+# news <- bind_rows(news, news.cryptocurrency, news.cryptocurrency_exchange, news.cryptocurrency_market) %>% select_if(colSums(!is.na(.)) > 0)
+# news <- news %>% arrange(date)
+# 
+# sentiment_cols <- c("sentiment_negative", "sentiment_neutral", "sentiment_positive")
+# news.sentiments <- news %>% get_sentences("content") %>% sentiment_by() %>% mutate(sentiment = ifelse(ave_sentiment < 0.2, "negative", ifelse(ave_sentiment > 0.2, "positive", "neutral")))
+# news.sentiments <- dummy_cols(news.sentiments, remove_selected_columns = T, select_columns = "sentiment") %>% select(all_of(sentiment_cols))
+# news <- bind_cols(news, news.sentiments)
+# 
+# write.csv(news, "datasets/news_sentiments.csv", row.names = F)
+news <- fread("datasets/text_sentiments/news_sentiments.csv")
+```
+
+```{r}
+# tweet_cols <- c("date", "content", "reply_count",	"retweet_count",	"like_count",	"quote_count", "hashtags", "cashtags")
+# 
+# tweets <- data.frame(matrix(nrow = 0, ncol = length(tweet_cols)))
+# 
+# for (fname in list.files("datasets/tweets/cashtags_excel", pattern='*.xlsx')) {
+#     values <- read_excel(paste("datasets/tweets/cashtags_excel", fname, sep = "/")) %>% filter(date >= "2019-01-01") %>% mutate(content = str_remove_all(text, '([^\'A-Za-z0-9@#_ ]+)')) %>% select(all_of(tweet_cols))
+#     tweets <- bind_rows(tweets, values)
+# }
+# 
+# tweet.cryptocurrency <- read_excel("datasets/tweets/Cryptocurrency.xlsx") %>% filter(date >= "2019-01-01") %>% mutate(content = str_remove_all(text, '([^\'A-Za-z0-9@#_ ]+)')) %>% select(all_of(tweet_cols))
+# tweets <- bind_rows(tweets, tweet.cryptocurrency) %>% select_if(colSums(!is.na(.)) > 0)
+# tweets <- tweets %>% arrange(date)
+# 
+# sentiment_cols <- c("sentiment_negative", "sentiment_neutral", "sentiment_positive")
+# tweets.sentiments <- tweets %>% get_sentences("content") %>% sentiment_by() %>% mutate(sentiment = ifelse(ave_sentiment < 0.2, "negative", ifelse(ave_sentiment > 0.2, "positive", "neutral")))
+# tweets.sentiments <- dummy_cols(tweets.sentiments, remove_selected_columns = T, select_columns = "sentiment") %>% select(all_of(sentiment_cols))
+# tweets <- bind_cols(tweets, tweets.sentiments)
+# 
+# write.csv(tweets, "datasets/tweets_sentiments.csv", row.names = F)
+tweets <- fread("datasets/text_sentiments/tweets_sentiments.csv")
+```
+
+
 
 Pre-COVID19
 ```{r}
-s.date <- "2019-01-01"
-e.date <- "2019-12-31"
 
-news.cryptocurrency.pre <- read_excel("datasets/news/Cryptocurrency.xlsx") %>% as.data.frame() %>% filter(date >= "2019-01-01" & date <= "2019-12-31") %>% arrange(date)
-news.cryptocurrency_exchange.pre <- read_excel("datasets/news/Cryptocurrency_exchange.xlsx") %>% as.data.frame() %>% filter(date >= "2019-01-01" & date <= "2019-12-31") %>% arrange(date)
-news.cryptocurrency_market.pre <- read_excel("datasets/news/Cryptocurrency_market.xlsx") %>% as.data.frame() %>% filter(date >= "2019-01-01" & date <= "2019-12-31") %>% arrange(date)
+ndays <- 365
+prices <- data.frame(matrix(nrow = ndays, ncol = 0))
+changes <- data.frame(matrix(nrow = ndays, ncol = 0))
+returns <- data.frame(matrix(nrow = ndays, ncol = 0))
 
-tweet.cryptocurrency.pre <- read_excel("datasets/tweets/Cryptocurrency.xlsx") %>% as.data.frame() %>% filter(date >= "2019-01-01" & date <= "2019-12-31") %>% arrange(date)
-reddit.cryptocurrency.pre <- read_excel("datasets/reddit/cryptocurrency_pre.xlsx") %>% as.data.frame() %>% arrange(date)
+price_cols <- c("Date", "Close", "Volume", "change", "returns", "volatility")
+for (fname in list.files(paste("datasets/daily/coins", sep = "/"))) {
+  symbol <- str_split(fname, "-", simplify = T)[1]
+  values <- fread(paste("datasets/daily/coins", fname, sep = "/")) %>% filter(Date >= "2019-01-01" & Date <= "2019-12-31") %>% select(all_of(price_cols)) %>% arrange(Date) %>% fill(everything(), .direction = "downup") %>% select_if(colSums(!is.na(.)) > 0)
+
+  prices$Date <- values$Date
+  changes$Date <- values$Date
+  returns$Date <- values$Date
+
+  prices[symbol] <- values$Close 
+  changes[symbol] <- values$change
+  returns[symbol] <- values$returns
+}
+
+
+news <- news %>% filter(date >= "2019-01-01" & date <= "2019-12-31")
+news.stats <- news %>% group_by(date) %>% summarise(across(where(is.numeric), sum))
+
+tweets <- tweets %>% filter(date >= "2019-01-01" & date <= "2019-12-31")
+tweet.stats <- tweets %>% group_by(date) %>% summarise(across(where(is.numeric), sum))
+
+reddits <- reddits %>% filter(date >= "2019-01-01" & date <= "2019-12-31")
+reddits <- dummy_cols(reddits, select_columns = "topic", remove_selected_columns = T)
+reddit.stats <- reddits %>% group_by(date) %>% summarise(across(where(is.numeric), sum))
+
+prices.news <- inner_join(prices, news.stats, by = c("Date" = "date"))
+prices.tweets <- inner_join(prices, tweet.stats, by = c("Date" = "date"))
+prices.reddits <- inner_join(prices, reddit.stats, by = c("Date" = "date"))
+
+returns.news <- inner_join(returns, news.stats, by = c("Date" = "date"))
+returns.tweets <- inner_join(returns, tweet.stats, by = c("Date" = "date"))
+returns.reddits <- inner_join(returns, reddit.stats, by = c("Date" = "date"))
 
 ```
+
+
+```{r}
+cor.matrix <- cor_mat(prices.news[-1])
+cor.matrix <- cor.matrix %>% select(c("rowname", names(prices[-1]))) %>% filter(!rowname %in% names(prices[-1]))
+attr(cor.matrix, "pvalue") <- attr(cor.matrix, "pvalue") %>% select(c("rowname", names(prices[-1]))) %>%  filter(!rowname %in% names(prices[-1]))
+
+ggcorrplot(cor.matrix, pch.cex = 1) + 
+  labs(x = "Sentiment", y = "Cryptocurrency") + 
+  ggtitle(paste("Correlation between Prices and News Sentiments (2019)")) +
+  theme_settings + center_title
+ggplot(data = cor_gather(cor.matrix), aes(x = cor)) + 
+  geom_density(color = 2, size = 1.5) +
+  labs(x = "Correlation Coefficient", y = "Density") +
+  ggtitle(paste("Density Plot of Correlation in Prices and News Sentiments (2019)"))+
+  center_title
+
+cor.matrix <- cor_mat(returns.news[-1])
+cor.matrix <- cor.matrix %>% select(c("rowname", names(returns[-1]))) %>% filter(!rowname %in% names(returns[-1]))
+attr(cor.matrix, "pvalue") <- attr(cor.matrix, "pvalue") %>% select(c("rowname", names(returns[-1]))) %>%  filter(!rowname %in% names(returns[-1]))
+
+ggcorrplot(cor.matrix, pch.cex = 1) + 
+  labs(x = "Sentiment", y = "Cryptocurrency") + 
+  ggtitle(paste("Correlation between returns and News Sentiments (2019)")) +
+  theme_settings + center_title
+ggplot(data = cor_gather(cor.matrix), aes(x = cor)) + 
+  geom_density(color = 2, size = 1.5) +
+  labs(x = "Correlation Coefficient", y = "Density") +
+  ggtitle(paste("Density Plot of Correlation in returns and News Sentiments (2019)"))+
+  center_title
+
+```
+
+```{r}
+cor.matrix <- cor_mat(prices.tweets[-1])
+cor.matrix <- cor.matrix %>% select(c("rowname", names(prices[-1]))) %>% filter(!rowname %in% names(prices[-1]))
+attr(cor.matrix, "pvalue") <- attr(cor.matrix, "pvalue") %>% select(c("rowname", names(prices[-1]))) %>%  filter(!rowname %in% names(prices[-1]))
+
+ggcorrplot(cor.matrix, pch.cex = 1) + 
+  labs(x = "Sentiment", y = "Cryptocurrency") + 
+  ggtitle(paste("Correlation between Prices and Tweet Sentiments (2019)")) +
+  theme_settings + center_title
+ggplot(data = cor_gather(cor.matrix), aes(x = cor)) + 
+  geom_density(color = 2, size = 1.5) +
+  labs(x = "Correlation Coefficient", y = "Density") +
+  ggtitle(paste("Density Plot of Correlation in Prices and Tweet Sentiments (2019)"))+
+  center_title
+
+cor.matrix <- cor_mat(returns.tweets[-1])
+cor.matrix <- cor.matrix %>% select(c("rowname", names(returns[-1]))) %>% filter(!rowname %in% names(returns[-1]))
+attr(cor.matrix, "pvalue") <- attr(cor.matrix, "pvalue") %>% select(c("rowname", names(returns[-1]))) %>%  filter(!rowname %in% names(returns[-1]))
+
+ggcorrplot(cor.matrix, pch.cex = 1) + 
+  labs(x = "Sentiment", y = "Cryptocurrency") + 
+  ggtitle(paste("Correlation between Returns and Tweet Sentiments (2019)")) +
+  theme_settings + center_title
+ggplot(data = cor_gather(cor.matrix), aes(x = cor)) + 
+  geom_density(color = 2, size = 1.5) +
+  labs(x = "Correlation Coefficient", y = "Density") +
+  ggtitle(paste("Density Plot of Correlation in Returns and Tweet Sentiments (2019)"))+
+  center_title
+```
+
+```{r}
+cor.matrix <- cor_mat(prices.reddits[-1])
+cor.matrix <- cor.matrix %>% select(c("rowname", names(prices[-1]))) %>% filter(!rowname %in% names(prices[-1]))
+attr(cor.matrix, "pvalue") <- attr(cor.matrix, "pvalue") %>% select(c("rowname", names(prices[-1]))) %>%  filter(!rowname %in% names(prices[-1]))
+
+ggcorrplot(cor.matrix, pch.cex = 1) + 
+  labs(x = "Sentiment", y = "Cryptocurrency") + 
+  ggtitle(paste("Correlation between Prices and Reddit Sentiments (2019)")) +
+  theme_settings + center_title
+ggplot(data = cor_gather(cor.matrix), aes(x = cor)) + 
+  geom_density(color = 2, size = 1.5) +
+  labs(x = "Correlation Coefficient", y = "Density") +
+  ggtitle(paste("Density Plot of Correlation in Prices and Reddit Sentiments (2019)"))+
+  center_title
+
+cor.matrix <- cor_mat(returns.reddits[-1])
+cor.matrix <- cor.matrix %>% select(c("rowname", names(returns[-1]))) %>% filter(!rowname %in% names(returns[-1]))
+attr(cor.matrix, "pvalue") <- attr(cor.matrix, "pvalue") %>% select(c("rowname", names(returns[-1]))) %>%  filter(!rowname %in% names(returns[-1]))
+
+ggcorrplot(cor.matrix, pch.cex = 1) + 
+  labs(x = "Sentiment", y = "Cryptocurrency") + 
+  ggtitle(paste("Correlation between returns and Reddit Sentiments (2019)")) +
+  theme_settings + center_title
+ggplot(data = cor_gather(cor.matrix), aes(x = cor)) + 
+  geom_density(color = 2, size = 1.5) +
+  labs(x = "Correlation Coefficient", y = "Density") +
+  ggtitle(paste("Density Plot of Correlation in returns and Reddit Sentiments (2019)"))+
+  center_title
+```
+
+
+```{r}
+ts.data <- prices.news
+ts.data[-1] <- scale(ts.data[-1])
+melt.data <- reshape2::melt(ts.data, "Date", value.name = "Values", variable.name = "Factor")
+ts.chart <- ggplot(data = melt.data, aes(x = Date, y = Values, color = Factor)) +
+      ggtitle(paste("Movement of", aspect, "with", factor, "(2019)")) +
+      geom_line() + 
+      center_title +
+      guides(col = guide_legend(ncol = 10)) +
+      theme(legend.position = "bottom", legend.direction = "vertical")
+```
+
+
 
 Peri-COVID19
 ```{r}
-news.cryptocurrency.peri <- read_excel("datasets/news/Cryptocurrency.xlsx") %>% as.data.frame() %>% filter(date >= "2020-01-01" & date <= "2020-12-31") %>% arrange(date)
-news.cryptocurrency_exchange.peri <- read_excel("datasets/news/Cryptocurrency_exchange.xlsx") %>% as.data.frame() %>% filter(date >= "2020-01-01" & date <= "2020-12-31") %>% arrange(date)
-news.cryptocurrency_market.peri <- read_excel("datasets/news/Cryptocurrency_market.xlsx") %>% as.data.frame() %>% filter(date >= "2020-01-01" & date <= "2020-12-31") %>% arrange(date)
 
-tweet.cryptocurrency.peri <- read_excel("datasets/tweets/Cryptocurrency.xlsx") %>% as.data.frame() %>% filter(date >= "2020-01-01" & date <= "2020-12-31") %>% arrange(date)
-reddit.cryptocurrency.peri <- read_excel("datasets/reddit/cryptocurrency_peri.xlsx") %>% as.data.frame() %>% arrange(date)
+ndays <- 362
+prices <- data.frame(matrix(nrow = ndays, ncol = 0))
+changes <- data.frame(matrix(nrow = ndays, ncol = 0))
+returns <- data.frame(matrix(nrow = ndays, ncol = 0))
 
+price_cols <- c("Date", "Close", "Volume", "change", "returns", "volatility")
+for (fname in list.files(paste("datasets/daily/coins", sep = "/"))) {
+  symbol <- str_split(fname, "-", simplify = T)[1]
+  values <- fread(paste("datasets/daily/coins", fname, sep = "/")) %>% filter(Date >= "2020-01-01" & Date <= "2020-12-31") %>% select(all_of(price_cols)) %>% arrange(Date) %>% fill(everything(), .direction = "downup") %>% select_if(colSums(!is.na(.)) > 0)
+
+  prices$Date <- values$Date
+  changes$Date <- values$Date
+  returns$Date <- values$Date
+
+  prices[symbol] <- values$Close 
+  changes[symbol] <- values$change
+  returns[symbol] <- values$returns
+}
+
+
+news <- news %>% filter(date >= "2020-01-01" & date <= "2020-12-31")
+news.stats <- news %>% group_by(date) %>% summarise(across(where(is.numeric), sum))
+
+tweets <- tweets %>% filter(date >= "2020-01-01" & date <= "2020-12-31")
+tweet.stats <- tweets %>% group_by(date) %>% summarise(across(where(is.numeric), sum))
+
+reddits <- reddits %>% filter(date >= "2020-01-01" & date <= "2020-12-31")
+reddits <- dummy_cols(reddits, select_columns = "topic", remove_selected_columns = T)
+reddit.stats <- reddits %>% group_by(date) %>% summarise(across(where(is.numeric), sum))
+
+prices.news <- inner_join(prices, news.stats, by = c("Date" = "date"))
+prices.tweets <- inner_join(prices, tweet.stats, by = c("Date" = "date"))
+prices.reddits <- inner_join(prices, reddit.stats, by = c("Date" = "date"))
+
+returns.news <- inner_join(returns, news.stats, by = c("Date" = "date"))
+returns.tweets <- inner_join(returns, tweet.stats, by = c("Date" = "date"))
+returns.reddits <- inner_join(returns, reddit.stats, by = c("Date" = "date"))
+```
+
+```{r}
+cor.matrix <- cor_mat(prices.news[-1])
+cor.matrix <- cor.matrix %>% select(c("rowname", names(prices[-1]))) %>% filter(!rowname %in% names(prices[-1]))
+attr(cor.matrix, "pvalue") <- attr(cor.matrix, "pvalue") %>% select(c("rowname", names(prices[-1]))) %>%  filter(!rowname %in% names(prices[-1]))
+
+ggcorrplot(cor.matrix, pch.cex = 1) + 
+  labs(x = "Sentiment", y = "Cryptocurrency") + 
+  ggtitle(paste("Correlation between Prices and News Sentiments (2020)")) +
+  theme_settings + center_title
+ggplot(data = cor_gather(cor.matrix), aes(x = cor)) + 
+  geom_density(color = 2, size = 1.5) +
+  labs(x = "Correlation Coefficient", y = "Density") +
+  ggtitle(paste("Density Plot of Correlation in Prices and News Sentiments (2020)"))+
+  center_title
+
+cor.matrix <- cor_mat(returns.news[-1])
+cor.matrix <- cor.matrix %>% select(c("rowname", names(returns[-1]))) %>% filter(!rowname %in% names(returns[-1]))
+attr(cor.matrix, "pvalue") <- attr(cor.matrix, "pvalue") %>% select(c("rowname", names(returns[-1]))) %>%  filter(!rowname %in% names(returns[-1]))
+
+ggcorrplot(cor.matrix, pch.cex = 1) + 
+  labs(x = "Sentiment", y = "Cryptocurrency") + 
+  ggtitle(paste("Correlation between returns and News Sentiments (2020)")) +
+  theme_settings + center_title
+ggplot(data = cor_gather(cor.matrix), aes(x = cor)) + 
+  geom_density(color = 2, size = 1.5) +
+  labs(x = "Correlation Coefficient", y = "Density") +
+  ggtitle(paste("Density Plot of Correlation in returns and News Sentiments (2020)"))+
+  center_title
 
 ```
+
+```{r}
+cor.matrix <- cor_mat(prices.tweets[-1])
+cor.matrix <- cor.matrix %>% select(c("rowname", names(prices[-1]))) %>% filter(!rowname %in% names(prices[-1]))
+attr(cor.matrix, "pvalue") <- attr(cor.matrix, "pvalue") %>% select(c("rowname", names(prices[-1]))) %>%  filter(!rowname %in% names(prices[-1]))
+
+ggcorrplot(cor.matrix, pch.cex = 1) + 
+  labs(x = "Sentiment", y = "Cryptocurrency") + 
+  ggtitle(paste("Correlation between Prices and Tweet Sentiments (2020)")) +
+  theme_settings + center_title
+ggplot(data = cor_gather(cor.matrix), aes(x = cor)) + 
+  geom_density(color = 2, size = 1.5) +
+  labs(x = "Correlation Coefficient", y = "Density") +
+  ggtitle(paste("Density Plot of Correlation in Prices and Tweet Sentiments (2020)"))+
+  center_title
+
+cor.matrix <- cor_mat(returns.tweets[-1])
+cor.matrix <- cor.matrix %>% select(c("rowname", names(returns[-1]))) %>% filter(!rowname %in% names(returns[-1]))
+attr(cor.matrix, "pvalue") <- attr(cor.matrix, "pvalue") %>% select(c("rowname", names(returns[-1]))) %>%  filter(!rowname %in% names(returns[-1]))
+
+ggcorrplot(cor.matrix, pch.cex = 1) + 
+  labs(x = "Sentiment", y = "Cryptocurrency") + 
+  ggtitle(paste("Correlation between Returns and Tweet Sentiments (2020)")) +
+  theme_settings + center_title
+ggplot(data = cor_gather(cor.matrix), aes(x = cor)) + 
+  geom_density(color = 2, size = 1.5) +
+  labs(x = "Correlation Coefficient", y = "Density") +
+  ggtitle(paste("Density Plot of Correlation in Returns and Tweet Sentiments (2020)"))+
+  center_title
+```
+
+```{r}
+cor.matrix <- cor_mat(prices.reddits[-1])
+cor.matrix <- cor.matrix %>% select(c("rowname", names(prices[-1]))) %>% filter(!rowname %in% names(prices[-1]))
+attr(cor.matrix, "pvalue") <- attr(cor.matrix, "pvalue") %>% select(c("rowname", names(prices[-1]))) %>%  filter(!rowname %in% names(prices[-1]))
+
+ggcorrplot(cor.matrix, pch.cex = 1) + 
+  labs(x = "Sentiment", y = "Cryptocurrency") + 
+  ggtitle(paste("Correlation between Prices and Reddit Sentiments (2020)")) +
+  theme_settings + center_title
+ggplot(data = cor_gather(cor.matrix), aes(x = cor)) + 
+  geom_density(color = 2, size = 1.5) +
+  labs(x = "Correlation Coefficient", y = "Density") +
+  ggtitle(paste("Density Plot of Correlation in Prices and Reddit Sentiments (2020)"))+
+  center_title
+
+cor.matrix <- cor_mat(returns.reddits[-1])
+cor.matrix <- cor.matrix %>% select(c("rowname", names(returns[-1]))) %>% filter(!rowname %in% names(returns[-1]))
+attr(cor.matrix, "pvalue") <- attr(cor.matrix, "pvalue") %>% select(c("rowname", names(returns[-1]))) %>%  filter(!rowname %in% names(returns[-1]))
+
+ggcorrplot(cor.matrix, pch.cex = 1) + 
+  labs(x = "Sentiment", y = "Cryptocurrency") + 
+  ggtitle(paste("Correlation between returns and Reddit Sentiments (2020)")) +
+  theme_settings + center_title
+ggplot(data = cor_gather(cor.matrix), aes(x = cor)) + 
+  geom_density(color = 2, size = 1.5) +
+  labs(x = "Correlation Coefficient", y = "Density") +
+  ggtitle(paste("Density Plot of Correlation in returns and Reddit Sentiments (2020)"))+
+  center_title
+```
+
+
 
 Post-COVID19
 ```{r}
-news.cryptocurrency.post <- read_excel("datasets/news/Cryptocurrency.xlsx") %>% as.data.frame() %>% filter(date >= "2021-01-01") %>% arrange(date)
-news.cryptocurrency_exchange.post <- read_excel("datasets/news/Cryptocurrency_exchange.xlsx") %>% as.data.frame() %>% filter(date >= "2021-01-01") %>% arrange(date)
-news.cryptocurrency_market.post <- read_excel("datasets/news/Cryptocurrency_market.xlsx") %>% as.data.frame() %>% filter(date >= "2021-01-01") %>% arrange(date)
 
-tweet.cryptocurrency.post <- read_excel("datasets/tweets/Cryptocurrency.xlsx") %>% as.data.frame() %>% filter(date >= "2021-01-01") %>% arrange(date)
-reddit.cryptocurrency.post <- read_excel("datasets/reddit/cryptocurrency_post.xlsx") %>% as.data.frame() %>% arrange(date)
+ndays <- 304
+prices <- data.frame(matrix(nrow = ndays, ncol = 0))
+changes <- data.frame(matrix(nrow = ndays, ncol = 0))
+returns <- data.frame(matrix(nrow = ndays, ncol = 0))
 
+price_cols <- c("Date", "Close", "Volume", "change", "returns", "volatility")
+for (fname in list.files(paste("datasets/daily/coins", sep = "/"))) {
+  symbol <- str_split(fname, "-", simplify = T)[1]
+  values <- fread(paste("datasets/daily/coins", fname, sep = "/")) %>% filter(Date >= "2021-01-01" & Date <= "2021-12-31") %>% select(all_of(price_cols)) %>% arrange(Date) %>% fill(everything(), .direction = "downup") %>% select_if(colSums(!is.na(.)) > 0)
+
+  prices$Date <- values$Date
+  changes$Date <- values$Date
+  returns$Date <- values$Date
+
+  prices[symbol] <- values$Close 
+  changes[symbol] <- values$change
+  returns[symbol] <- values$returns
+}
+
+
+news <- news %>% filter(date >= "2021-01-01" & date <= "2021-12-31")
+news.stats <- news %>% group_by(date) %>% summarise(across(where(is.numeric), sum))
+
+tweets <- tweets %>% filter(date >= "2021-01-01" & date <= "2021-12-31")
+tweet.stats <- tweets %>% group_by(date) %>% summarise(across(where(is.numeric), sum))
+
+reddits <- reddits %>% filter(date >= "2021-01-01" & date <= "2021-12-31")
+reddits <- dummy_cols(reddits, select_columns = "topic", remove_selected_columns = T)
+reddit.stats <- reddits %>% group_by(date) %>% summarise(across(where(is.numeric), sum))
+
+prices.news <- inner_join(prices, news.stats, by = c("Date" = "date"))
+prices.tweets <- inner_join(prices, tweet.stats, by = c("Date" = "date"))
+prices.reddits <- inner_join(prices, reddit.stats, by = c("Date" = "date"))
+
+returns.news <- inner_join(returns, news.stats, by = c("Date" = "date"))
+returns.tweets <- inner_join(returns, tweet.stats, by = c("Date" = "date"))
+returns.reddits <- inner_join(returns, reddit.stats, by = c("Date" = "date"))
+```
+
+```{r}
+cor.matrix <- cor_mat(prices.news[-1])
+cor.matrix <- cor.matrix %>% select(c("rowname", names(prices[-1]))) %>% filter(!rowname %in% names(prices[-1]))
+attr(cor.matrix, "pvalue") <- attr(cor.matrix, "pvalue") %>% select(c("rowname", names(prices[-1]))) %>%  filter(!rowname %in% names(prices[-1]))
+
+ggcorrplot(cor.matrix, pch.cex = 1) + 
+  labs(x = "Sentiment", y = "Cryptocurrency") + 
+  ggtitle(paste("Correlation between Prices and News Sentiments (2021)")) +
+  theme_settings + center_title
+ggplot(data = cor_gather(cor.matrix), aes(x = cor)) + 
+  geom_density(color = 2, size = 1.5) +
+  labs(x = "Correlation Coefficient", y = "Density") +
+  ggtitle(paste("Density Plot of Correlation in Prices and News Sentiments (2021)"))+
+  center_title
+
+cor.matrix <- cor_mat(returns.news[-1])
+cor.matrix <- cor.matrix %>% select(c("rowname", names(returns[-1]))) %>% filter(!rowname %in% names(returns[-1]))
+attr(cor.matrix, "pvalue") <- attr(cor.matrix, "pvalue") %>% select(c("rowname", names(returns[-1]))) %>%  filter(!rowname %in% names(returns[-1]))
+
+ggcorrplot(cor.matrix, pch.cex = 1) + 
+  labs(x = "Sentiment", y = "Cryptocurrency") + 
+  ggtitle(paste("Correlation between returns and News Sentiments (2021)")) +
+  theme_settings + center_title
+ggplot(data = cor_gather(cor.matrix), aes(x = cor)) + 
+  geom_density(color = 2, size = 1.5) +
+  labs(x = "Correlation Coefficient", y = "Density") +
+  ggtitle(paste("Density Plot of Correlation in returns and News Sentiments (2021)"))+
+  center_title
 
 ```
 
+```{r}
+cor.matrix <- cor_mat(prices.tweets[-1])
+cor.matrix <- cor.matrix %>% select(c("rowname", names(prices[-1]))) %>% filter(!rowname %in% names(prices[-1]))
+attr(cor.matrix, "pvalue") <- attr(cor.matrix, "pvalue") %>% select(c("rowname", names(prices[-1]))) %>%  filter(!rowname %in% names(prices[-1]))
+
+ggcorrplot(cor.matrix, pch.cex = 1) + 
+  labs(x = "Sentiment", y = "Cryptocurrency") + 
+  ggtitle(paste("Correlation between Prices and Tweet Sentiments (2021)")) +
+  theme_settings + center_title
+ggplot(data = cor_gather(cor.matrix), aes(x = cor)) + 
+  geom_density(color = 2, size = 1.5) +
+  labs(x = "Correlation Coefficient", y = "Density") +
+  ggtitle(paste("Density Plot of Correlation in Prices and Tweet Sentiments (2021)"))+
+  center_title
+
+cor.matrix <- cor_mat(returns.tweets[-1])
+cor.matrix <- cor.matrix %>% select(c("rowname", names(returns[-1]))) %>% filter(!rowname %in% names(returns[-1]))
+attr(cor.matrix, "pvalue") <- attr(cor.matrix, "pvalue") %>% select(c("rowname", names(returns[-1]))) %>%  filter(!rowname %in% names(returns[-1]))
+
+ggcorrplot(cor.matrix, pch.cex = 1) + 
+  labs(x = "Sentiment", y = "Cryptocurrency") + 
+  ggtitle(paste("Correlation between Returns and Tweet Sentiments (2021)")) +
+  theme_settings + center_title
+ggplot(data = cor_gather(cor.matrix), aes(x = cor)) + 
+  geom_density(color = 2, size = 1.5) +
+  labs(x = "Correlation Coefficient", y = "Density") +
+  ggtitle(paste("Density Plot of Correlation in Returns and Tweet Sentiments (2021)"))+
+  center_title
+```
+
+```{r}
+cor.matrix <- cor_mat(prices.reddits[-1])
+cor.matrix <- cor.matrix %>% select(c("rowname", names(prices[-1]))) %>% filter(!rowname %in% names(prices[-1]))
+attr(cor.matrix, "pvalue") <- attr(cor.matrix, "pvalue") %>% select(c("rowname", names(prices[-1]))) %>%  filter(!rowname %in% names(prices[-1]))
+
+ggcorrplot(cor.matrix, pch.cex = 1) + 
+  labs(x = "Sentiment", y = "Cryptocurrency") + 
+  ggtitle(paste("Correlation between Prices and Reddit Sentiments (2021)")) +
+  theme_settings + center_title
+ggplot(data = cor_gather(cor.matrix), aes(x = cor)) + 
+  geom_density(color = 2, size = 1.5) +
+  labs(x = "Correlation Coefficient", y = "Density") +
+  ggtitle(paste("Density Plot of Correlation in Prices and Reddit Sentiments (2021)"))+
+  center_title
+
+cor.matrix <- cor_mat(returns.reddits[-1])
+cor.matrix <- cor.matrix %>% select(c("rowname", names(returns[-1]))) %>% filter(!rowname %in% names(returns[-1]))
+attr(cor.matrix, "pvalue") <- attr(cor.matrix, "pvalue") %>% select(c("rowname", names(returns[-1]))) %>%  filter(!rowname %in% names(returns[-1]))
+
+ggcorrplot(cor.matrix, pch.cex = 1) + 
+  labs(x = "Sentiment", y = "Cryptocurrency") + 
+  ggtitle(paste("Correlation between returns and Reddit Sentiments (2021)")) +
+  theme_settings + center_title
+ggplot(data = cor_gather(cor.matrix), aes(x = cor)) + 
+  geom_density(color = 2, size = 1.5) +
+  labs(x = "Correlation Coefficient", y = "Density") +
+  ggtitle(paste("Density Plot of Correlation in returns and Reddit Sentiments (2021)"))+
+  center_title
+```

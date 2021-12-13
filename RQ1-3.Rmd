@@ -2,6 +2,8 @@
 title: "RQ1-3: Correlation Analysis with Popularity Scores (Google Trends and Wikipedia Pageview)"
 author: "CS564 Team 10"
 output: html_notebook
+editor_options: 
+  chunk_output_type: console
 ---
 
 Load Datasets
@@ -66,67 +68,67 @@ for (fname in list.files("datasets/gtrends")) {
   keyword <- str_split(fname, "\\.", simplify = T)[1]
   values <- fread(paste("datasets/gtrends", fname, sep = "/")) %>% as.data.frame() %>% filter(date >= s.date & date <= e.date) %>% arrange(date) %>% select(c(1, 2, 6))
   
-  gtrends <- left_join(gtrends, values[c(1, 2)], by = c("Date" = "date"))
-  gtrends[is.na(gtrends)] <- 0
+  # gtrends <- left_join(gtrends, values[c(1, 2)], by = c("Date" = "date"))
+  # gtrends[is.na(gtrends)] <- 0
   
-  gtrends.scale <- left_join(gtrends.scale, values[c(1, 3)], by = c("Date" = "date"))
-  gtrends.scale[is.na(gtrends.scale)] <- 0
+  gtrends <- left_join(gtrends, values[c(1, 3)], by = c("Date" = "date"))
+  gtrends[is.na(gtrends)] <- 0
 }
 
 wiki.daily <- fread("datasets/wiki_pageviews.csv") %>% as.data.frame() %>% filter(Date >= s.date & Date <= e.date) %>% arrange(Date)
 wiki.daily[is.na(wiki.daily)] <- 0
 
-prices.gtrends <- bind_cols(prices, gtrends[-1])
-prices.gtrends.scale <- bind_cols(prices, gtrends.scale[-1])
-prices.wiki <- left_join(prices, wiki.daily, by = "Date", suffix = c(".coin", "wiki"))
+prices.gtrends <- left_join(prices, gtrends, by = "Date", suffix = c("", ".gtrends"))
+prices.wiki <- left_join(prices, wiki.daily, by = "Date", suffix = c("", ".wiki"))
 
-changes.gtrends <- bind_cols(changes, gtrends[-1])
-changes.gtrends.scale <- bind_cols(changes, gtrends.scale[-1])
-changes.wiki <- left_join(changes, wiki.daily, by = "Date", suffix = c(".coin", "wiki"))
+changes.gtrends <- left_join(changes, gtrends, by = "Date", suffix = c("", ".gtrends"))
+changes.wiki <- left_join(changes, wiki.daily, by = "Date", suffix = c("", ".wiki"))
 
-returns.gtrends <- bind_cols(returns, gtrends[-1])
-returns.gtrends.scale <- bind_cols(returns, gtrends.scale[-1])
-returns.wiki <- left_join(returns, wiki.daily, by = "Date", suffix = c(".coin", "wiki"))
+returns.gtrends <- left_join(returns, gtrends, by = "Date", suffix = c("", ".gtrends"))
+returns.wiki <- left_join(returns, wiki.daily, by = "Date", suffix = c("", ".wiki"))
 
 
-for (aspect in c("Prices", "Changes", "Returns")) {
-  for (factor in c("gtrends", "gtrends.scale", "wiki")) {
+for (aspect in c("Prices", "Returns")) {
+  for (factor in c("gtrends", "wiki")) {
     lower.aspect <- tolower(aspect)
     aspect.data <- get(lower.aspect)[-1]
     cor.data <- get(paste(lower.aspect, factor, sep = "."))
     cor.matrix <- cor_mat(cor.data[-1])
     cor.matrix <- cor.matrix %>% select(c("rowname", names(aspect.data))) %>% filter(!rowname %in% names(aspect.data))
     attr(cor.matrix, "pvalue") <- attr(cor.matrix, "pvalue") %>% select(c("rowname", names(aspect.data))) %>% filter(!rowname %in% names(aspect.data))
-    assign(paste(lower.aspect, "corr", sep = "."), cor.matrix)
+    assign(paste(lower.aspect, factor, "corr", sep = "."), cor.matrix)
   
     ts.data <- cor.data
     ts.data[-1] <- scale(ts.data[-1])
     melt.data <- reshape2::melt(ts.data, "Date", value.name = "Values", variable.name = "Index")
-    assign(paste(lower.aspect, "melt", sep = "."), melt.data)
+    assign(paste(lower.aspect, factor, "melt", sep = "."), melt.data)
   }
 }
 
 # Visualization
-for (level in c("daily")) {
-  for (aspect in c("Prices", "Changes", "Returns")) {
+for (aspect in c("Prices", "Returns")) {
+  for (factor in c("gtrends", "wiki")) {
     lower.aspect <- tolower(aspect)
-    melt.data <- get(paste(lower.aspect, level, "melt", sep = "."))
-    ts.chart <- ggplot(data = melt.data, aes(x = Date, y = Values, color = Index)) +
-      ggtitle(paste("Movement of", aspect, "with Economic Uncertainty Index (2019)")) +
-      geom_line() + 
-      center_title +
-      guides(col = guide_legend(ncol = 20)) +
-      theme(legend.position = "bottom", legend.direction = "vertical")
+    # melt.data <- get(paste(lower.aspect, factor, "melt", sep = "."))
+    # ts.chart <- ggplot(data = melt.data, aes(x = Date, y = Values, color = Index)) +
+    #   ggtitle(paste("Movement of", aspect, "with", factor, "(2019)")) +
+    #   geom_line() + 
+    #   center_title +
+    #   guides(col = guide_legend(ncol = 10)) +
+      # theme(legend.position = "bottom", legend.direction = "vertical")
   
-    cor.matrix <- get(paste(lower.aspect, level, "corr", sep = "."))
+    cor.matrix <- get(paste(lower.aspect, factor, "corr", sep = "."))
     cor.chart <- ggcorrplot(cor.matrix, pch.cex = 1) + 
       labs(x = "Index", y = "Cryptocurrency") + 
-      ggtitle(paste("Correlation between", aspect, "and EUIs (2019)")) +
+      ggtitle(paste("Correlation between", aspect, "and", factor, "(2019)")) +
       theme_settings + center_title
+    cor.dense <- ggplot(data = cor_gather(cor.matrix), aes(x = cor)) + 
+      geom_density(color = 2, size = 1.5) +
+      labs(x = "Correlation Coefficient", y = "Density") +
+      ggtitle(paste("Density Plot of Correlation in", factor, aspect, "(2019)"))+
+      center_title
     
-    assign(paste(lower.aspect, level, "cor.chart.pre", sep = "."), cor.chart)
-    assign(paste(lower.aspect, level, "ts.chart.pre", sep = "."), ts.chart)
-    print(ts.chart)
+    print(cor.dense)
     print(cor.chart)
   }
 }
@@ -135,13 +137,201 @@ for (level in c("daily")) {
 
 Peri-COVID19
 ```{r}
-wiki.daily.peri <- fread("datasets/wiki_pageviews.csv") %>% as.data.frame() %>% filter(Date >= "2020-01-01" & Date <= "2020-12-31") %>% arrange(Date)
+s.date <- "2020-01-01"
+e.date <- "2020-12-31"
+
+ndays <- 362
+prices <- data.frame(matrix(nrow = ndays, ncol = 0))
+changes <- data.frame(matrix(nrow = ndays, ncol = 0))
+returns <- data.frame(matrix(nrow = ndays, ncol = 0))
+gtrends <- data.frame(matrix(nrow = ndays, ncol = 0))
+gtrends.scale <- data.frame(matrix(nrow = ndays, ncol = 0))
+
+price_cols <- c("Date", "Close", "Volume", "change", "returns", "volatility")
+for (fname in list.files(paste("datasets/daily/coins", sep = "/"))) {
+  symbol <- str_split(fname, "-", simplify = T)[1]
+  values <- fread(paste("datasets/daily/coins", fname, sep = "/")) %>% filter(Date >= s.date & Date <= e.date) %>% select(all_of(price_cols)) %>% arrange(Date) %>% fill(everything(), .direction = "downup") %>% select_if(colSums(!is.na(.)) > 0)
+
+  prices$Date <- values$Date
+  changes$Date <- values$Date
+  returns$Date <- values$Date
+
+  prices[symbol] <- values$Close 
+  changes[symbol] <- values$change
+  returns[symbol] <- values$returns
+}
+
+gtrends$Date <- prices$Date
+gtrends.scale$Date <- prices$Date
+for (fname in list.files("datasets/gtrends")) {
+  keyword <- str_split(fname, "\\.", simplify = T)[1]
+  values <- fread(paste("datasets/gtrends", fname, sep = "/")) %>% as.data.frame() %>% filter(date >= s.date & date <= e.date) %>% arrange(date) %>% select(c(1, 2, 6))
+  
+  # gtrends <- left_join(gtrends, values[c(1, 2)], by = c("Date" = "date"))
+  # gtrends[is.na(gtrends)] <- 0
+  
+  gtrends <- left_join(gtrends, values[c(1, 3)], by = c("Date" = "date"))
+  gtrends[is.na(gtrends)] <- 0
+}
+
+wiki.daily <- fread("datasets/wiki_pageviews.csv") %>% as.data.frame() %>% filter(Date >= s.date & Date <= e.date) %>% arrange(Date)
+wiki.daily[is.na(wiki.daily)] <- 0
+
+prices.gtrends <- left_join(prices, gtrends, by = "Date", suffix = c("", ".gtrends"))
+prices.wiki <- left_join(prices, wiki.daily, by = "Date", suffix = c("", ".wiki"))
+
+changes.gtrends <- left_join(changes, gtrends, by = "Date", suffix = c("", ".gtrends"))
+changes.wiki <- left_join(changes, wiki.daily, by = "Date", suffix = c("", ".wiki"))
+
+returns.gtrends <- left_join(returns, gtrends, by = "Date", suffix = c("", ".gtrends"))
+returns.wiki <- left_join(returns, wiki.daily, by = "Date", suffix = c("", ".wiki"))
+
+
+for (aspect in c("Prices", "Returns")) {
+  for (factor in c("gtrends", "wiki")) {
+    lower.aspect <- tolower(aspect)
+    aspect.data <- get(lower.aspect)[-1]
+    cor.data <- get(paste(lower.aspect, factor, sep = "."))
+    cor.matrix <- cor_mat(cor.data[-1])
+    cor.matrix <- cor.matrix %>% select(c("rowname", names(aspect.data))) %>% filter(!rowname %in% names(aspect.data))
+    attr(cor.matrix, "pvalue") <- attr(cor.matrix, "pvalue") %>% select(c("rowname", names(aspect.data))) %>% filter(!rowname %in% names(aspect.data))
+    assign(paste(lower.aspect, factor, "corr", sep = "."), cor.matrix)
+  
+    ts.data <- cor.data
+    ts.data[-1] <- scale(ts.data[-1])
+    melt.data <- reshape2::melt(ts.data, "Date", value.name = "Values", variable.name = "Index")
+    assign(paste(lower.aspect, factor, "melt", sep = "."), melt.data)
+  }
+}
+
+# Visualization
+for (aspect in c("Prices", "Returns")) {
+  for (factor in c("gtrends", "wiki")) {
+    lower.aspect <- tolower(aspect)
+    # melt.data <- get(paste(lower.aspect, factor, "melt", sep = "."))
+    # ts.chart <- ggplot(data = melt.data, aes(x = Date, y = Values, color = Index)) +
+    #   ggtitle(paste("Movement of", aspect, "with", factor, "(2020)")) +
+    #   geom_line() + 
+    #   center_title +
+    #   guides(col = guide_legend(ncol = 10)) +
+      # theme(legend.position = "bottom", legend.direction = "vertical")
+  
+    cor.matrix <- get(paste(lower.aspect, factor, "corr", sep = "."))
+    cor.chart <- ggcorrplot(cor.matrix, pch.cex = 1) + 
+      labs(x = "Index", y = "Cryptocurrency") + 
+      ggtitle(paste("Correlation between", aspect, "and", factor, "(2020)")) +
+      theme_settings + center_title
+    cor.dense <- ggplot(data = cor_gather(cor.matrix), aes(x = cor)) + 
+      geom_density(color = 2, size = 1.5) +
+      labs(x = "Correlation Coefficient", y = "Density") +
+      ggtitle(paste("Density Plot of Correlation in", factor, aspect, "(2020)"))+
+      center_title
+    
+    print(cor.dense)
+    print(cor.chart)
+  }
+}
+
 
 ```
 
 Post-COVID19
 ```{r}
-wiki.daily.post <- fread("datasets/wiki_pageviews.csv") %>% as.data.frame() %>% filter(Date >= "2021-01-01") %>% arrange(Date)
+s.date <- "2021-01-01"
+e.date <- "2021-10-31"
+
+ndays <- 304
+prices <- data.frame(matrix(nrow = ndays, ncol = 0))
+changes <- data.frame(matrix(nrow = ndays, ncol = 0))
+returns <- data.frame(matrix(nrow = ndays, ncol = 0))
+gtrends <- data.frame(matrix(nrow = ndays, ncol = 0))
+gtrends.scale <- data.frame(matrix(nrow = ndays, ncol = 0))
+
+price_cols <- c("Date", "Close", "Volume", "change", "returns", "volatility")
+for (fname in list.files(paste("datasets/daily/coins", sep = "/"))) {
+  symbol <- str_split(fname, "-", simplify = T)[1]
+  values <- fread(paste("datasets/daily/coins", fname, sep = "/")) %>% filter(Date >= s.date & Date <= e.date) %>% select(all_of(price_cols)) %>% arrange(Date) %>% fill(everything(), .direction = "downup") %>% select_if(colSums(!is.na(.)) > 0)
+
+  prices$Date <- values$Date
+  changes$Date <- values$Date
+  returns$Date <- values$Date
+
+  prices[symbol] <- values$Close 
+  changes[symbol] <- values$change
+  returns[symbol] <- values$returns
+}
+
+gtrends$Date <- prices$Date
+gtrends.scale$Date <- prices$Date
+for (fname in list.files("datasets/gtrends")) {
+  keyword <- str_split(fname, "\\.", simplify = T)[1]
+  values <- fread(paste("datasets/gtrends", fname, sep = "/")) %>% as.data.frame() %>% filter(date >= s.date & date <= e.date) %>% arrange(date) %>% select(c(1, 2, 6))
+  
+  # gtrends <- left_join(gtrends, values[c(1, 2)], by = c("Date" = "date"))
+  # gtrends[is.na(gtrends)] <- 0
+  
+  gtrends <- left_join(gtrends, values[c(1, 3)], by = c("Date" = "date"))
+  gtrends[is.na(gtrends)] <- 0
+}
+
+wiki.daily <- fread("datasets/wiki_pageviews.csv") %>% as.data.frame() %>% filter(Date >= s.date & Date <= e.date) %>% arrange(Date)
+wiki.daily[is.na(wiki.daily)] <- 0
+
+prices.gtrends <- left_join(prices, gtrends, by = "Date", suffix = c("", ".gtrends"))
+prices.wiki <- left_join(prices, wiki.daily, by = "Date", suffix = c("", ".wiki"))
+
+changes.gtrends <- left_join(changes, gtrends, by = "Date", suffix = c("", ".gtrends"))
+changes.wiki <- left_join(changes, wiki.daily, by = "Date", suffix = c("", ".wiki"))
+
+returns.gtrends <- left_join(returns, gtrends, by = "Date", suffix = c("", ".gtrends"))
+returns.wiki <- left_join(returns, wiki.daily, by = "Date", suffix = c("", ".wiki"))
+
+
+for (aspect in c("Prices", "Returns")) {
+  for (factor in c("gtrends", "wiki")) {
+    lower.aspect <- tolower(aspect)
+    aspect.data <- get(lower.aspect)[-1]
+    cor.data <- get(paste(lower.aspect, factor, sep = "."))
+    cor.matrix <- cor_mat(cor.data[-1])
+    cor.matrix <- cor.matrix %>% select(c("rowname", names(aspect.data))) %>% filter(!rowname %in% names(aspect.data))
+    attr(cor.matrix, "pvalue") <- attr(cor.matrix, "pvalue") %>% select(c("rowname", names(aspect.data))) %>% filter(!rowname %in% names(aspect.data))
+    assign(paste(lower.aspect, factor, "corr", sep = "."), cor.matrix)
+  
+    ts.data <- cor.data
+    ts.data[-1] <- scale(ts.data[-1])
+    melt.data <- reshape2::melt(ts.data, "Date", value.name = "Values", variable.name = "Index")
+    assign(paste(lower.aspect, factor, "melt", sep = "."), melt.data)
+  }
+}
+
+# Visualization
+for (aspect in c("Prices", "Returns")) {
+  for (factor in c("gtrends", "wiki")) {
+    lower.aspect <- tolower(aspect)
+    # melt.data <- get(paste(lower.aspect, factor, "melt", sep = "."))
+    # ts.chart <- ggplot(data = melt.data, aes(x = Date, y = Values, color = Index)) +
+    #   ggtitle(paste("Movement of", aspect, "with", factor, "(2021)")) +
+    #   geom_line() + 
+    #   center_title +
+    #   guides(col = guide_legend(ncol = 10)) +
+      # theme(legend.position = "bottom", legend.direction = "vertical")
+  
+    cor.matrix <- get(paste(lower.aspect, factor, "corr", sep = "."))
+    cor.chart <- ggcorrplot(cor.matrix, pch.cex = 1) + 
+      labs(x = "Index", y = "Cryptocurrency") + 
+      ggtitle(paste("Correlation between", aspect, "and", factor, "(2021)")) +
+      theme_settings + center_title
+    cor.dense <- ggplot(data = cor_gather(cor.matrix), aes(x = cor)) + 
+      geom_density(color = 2, size = 1.5) +
+      labs(x = "Correlation Coefficient", y = "Density") +
+      ggtitle(paste("Density Plot of Correlation in", factor, aspect, "(2021)"))+
+      center_title
+    
+    print(cor.dense)
+    print(cor.chart)
+  }
+}
+
 
 ```
 
